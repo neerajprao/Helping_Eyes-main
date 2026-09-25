@@ -27,12 +27,8 @@ logger = logging.getLogger(__name__)
 
 # ================= CONFIG =================
 load_dotenv()
-PHONE_IP = os.getenv("PHONE_IP")
-# ESP32-CAM CameraWebServer default; override with CAMERA_URL in .env
-CAMERA_URL = os.getenv("CAMERA_URL") or f"http://{PHONE_IP}:81/stream"
-
-if not PHONE_IP and not os.getenv("CAMERA_URL"):
-    raise RuntimeError("PHONE_IP (or CAMERA_URL) missing from .env")
+# Laptop webcam: 0 = built-in camera; try 1, 2... for an external USB camera
+CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 
 # ================= VISION LANGUAGE MODEL =================
 """
@@ -69,9 +65,6 @@ MAX_RETRIES = 3
 RETRY_DELAY = 1
 LAST_SUCCESSFUL_READ = 0
 MIN_READ_INTERVAL = 15  # seconds
-
-# ================= CAMERA ROTATION =================
-CAMERA_ROTATION = int(os.getenv("CAMERA_ROTATION", "-90"))
 
 # ================= YOLO =================
 # Apple Silicon GPU (MPS) when available, else CPU. Override with YOLO_DEVICE.
@@ -430,9 +423,9 @@ class BackgroundFrameReader(threading.Thread):
     Stores latest frame in a ring buffer
     """
     
-    def __init__(self, stream_url: str, buffer_size: int = 5):
+    def __init__(self, camera_index: int, buffer_size: int = 5):
         super().__init__(daemon=True)
-        self.stream_url = stream_url
+        self.camera_index = camera_index
         self.cap = None
         self.buffer = deque(maxlen=buffer_size)
         self.buffer_lock = threading.Lock()
@@ -440,14 +433,19 @@ class BackgroundFrameReader(threading.Thread):
         self.connected = False
         self.consecutive_failures = 0
         self.max_failures = 10
-        self.frame_delay = 1.0 / 15.0  # avoid overloading the ESP32-CAM
         
     def connect(self) -> bool:
-        """Connect to camera stream"""
+        """Open the laptop webcam"""
         try:
-            self.cap = cv2.VideoCapture(self.stream_url, cv2.CAP_FFMPEG)
-            
-            # Minimize buffer and avoid forcing unsupported HTTP MJPEG properties
+            self.cap = cv2.VideoCapture(self.camera_index)
+            if not self.cap.isOpened():
+                logger.error(f"❌ Cannot open webcam {self.camera_index}. On macOS, allow Camera access for your terminal / VS Code.")
+                self.close()
+                return False
+
+            # Landscape 720p matches the display and keeps preprocessing fast
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
             # Test connection
@@ -485,7 +483,6 @@ class BackgroundFrameReader(threading.Thread):
                     with self.buffer_lock:
                         self.buffer.append(frame)
                     self.consecutive_failures = 0
-                    time.sleep(self.frame_delay)
                 else:
                     self.consecutive_failures += 1
                     logger.warning(f"⚠️ Background read failure {self.consecutive_failures}/{self.max_failures}")
@@ -535,17 +532,13 @@ def main():
     """Main application loop with background frame reading"""
     global _force_next_capture, _voice_thread_running, LAST_API_CALL, _restart_capture
 
-    # Start background frame reader
-    frame_reader = BackgroundFrameReader(CAMERA_URL)
-    frame_reader.start()
-    
-    # Give reader time to connect
-    time.sleep(2)
-    
-    if not frame_reader.connected:
-        logger.error("❌ Failed to start background frame reader")
-        frame_reader.stop()
+    # Open the webcam on the main thread first: macOS can only show the
+    # camera-permission prompt from the main thread.
+    frame_reader = BackgroundFrameReader(CAMERA_INDEX)
+    if not frame_reader.connect():
+        logger.error("❌ Failed to open webcam")
         return
+    frame_reader.start()
 
     speak("System online. Show me a document.")
 
@@ -564,7 +557,7 @@ def main():
     HOLD_TIME = 0.3
     
     # ================= GUIDE BOX CONFIG =================
-    DISPLAY_W, DISPLAY_H = 720, 1280
+    DISPLAY_W, DISPLAY_H = 1280, 720
     GUIDE_MARGIN_X = 30
     GUIDE_MARGIN_Y = 20
     GUIDE_X1, GUIDE_Y1 = GUIDE_MARGIN_X, GUIDE_MARGIN_Y
@@ -759,19 +752,11 @@ def main():
 
                     speak("Ready for next capture")
                     
-                # Fix camera orientation
-                if CAMERA_ROTATION == 90:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                elif CAMERA_ROTATION == -90:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                elif CAMERA_ROTATION == 180:
-                    frame = cv2.rotate(frame, cv2.ROTATE_180)
-                
                 no_frame_counter = 0
                 frame_count += 1
-                display = frame.copy()  # No horizontal flip
-                
-                # ===== STRETCH TO FILL ENTIRE WINDOW (No black bars) =====
+                # Mirror like a selfie view so "Move Left/Right" hints match
+                # the user's own left/right. The VLM still gets the unmirrored frame.
+                display = cv2.flip(frame, 1)
                 display = cv2.resize(display, (DISPLAY_W, DISPLAY_H))
 
                 if speaker.is_speaking:

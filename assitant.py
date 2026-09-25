@@ -14,12 +14,11 @@ from speech import Speaker
 # ================= CONFIG =================
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
-PHONE_IP = os.getenv("PHONE_IP")
-# Android "IP Webcam" app default; override with CAMERA_URL in .env
-CAMERA_URL = os.getenv("CAMERA_URL") or f"http://{PHONE_IP}:8080/video"
+# Laptop webcam: 0 = built-in camera; try 1, 2... for an external USB camera
+CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 
-if not API_KEY or not PHONE_IP:
-    print("API_KEY or PHONE_IP missing in .env")
+if not API_KEY:
+    print("API_KEY missing in .env")
     sys.exit(1)
 
 # ================= GEMINI =================
@@ -125,10 +124,13 @@ def analyze_image(frame, last_text):
 
 # ================= MAIN =================
 def main():
-    cap = cv2.VideoCapture(CAMERA_URL, cv2.CAP_FFMPEG)
+    cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
-        print(f"Camera not accessible at {CAMERA_URL}")
+        print(f"Cannot open webcam {CAMERA_INDEX}. On macOS, allow Camera access "
+              "for your terminal / VS Code in System Settings → Privacy & Security → Camera.")
         return
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     speak("System online. Show me a book.")
 

@@ -36,15 +36,15 @@ Helping Eyes addresses all of these gaps by delivering an affordable, compact, a
 
 ## Introduction
 
-**Helping Eyes** is an AI-powered assistive reading device designed specifically for visually impaired users. It combines embedded hardware with state-of-the-art AI software to create a seamless, hands-free reading experience.
+**Helping Eyes** is an AI-powered assistive reading application for visually impaired users. It runs entirely on a laptop, using the built-in webcam, to give a seamless, hands-free reading experience.
 
 Core capabilities:
 
-- Captures printed documents in real time using an **ESP32-CAM** module.
+- Captures printed documents in real time using the **laptop's webcam**.
 - Enhances captured frames using **OpenCV** image preprocessing techniques.
 - Detects document boundaries automatically before passing the image forward.
 - Extracts text intelligently using a **Vision Language Model (VLM)** — replacing conventional OCR for dramatically improved accuracy.
-- Converts the extracted text to natural speech via a **Text-to-Speech (TTS)** engine and delivers it through a speaker or earphone.
+- Converts the extracted text to natural speech via a **Text-to-Speech (TTS)** engine and plays it through the laptop's speakers or headphones.
 
 The entire pipeline runs with minimal user interaction, making the device highly accessible.
 
@@ -56,7 +56,7 @@ The entire pipeline runs with minimal user interaction, making the device highly
 - Enhance captured images using OpenCV (denoising, contrast adjustment, perspective correction).
 - Integrate a Vision Language Model (VLM) for context-aware, accurate text extraction.
 - Convert extracted text into clear speech output.
-- Package the complete system into a compact, wearable, and embedded assistive device.
+- Run the complete system on an ordinary laptop, with no extra hardware.
 
 ---
 
@@ -72,6 +72,8 @@ The end-to-end pipeline follows a linear flow from image capture to audio output
 
 ### Hardware Design
 
+> **Note:** The current software uses only the laptop's webcam. The ESP32-CAM wearable described below is the project's original hardware prototype and is not used by the code.
+
 The physical device is housed in a **custom 3D-printed module** designed specifically for this project. The enclosure was modelled in Fusion 360 and offers:
 
 - **Portability** — lightweight enough to be worn on the chest or clipped to clothing.
@@ -83,16 +85,18 @@ The physical device is housed in a **custom 3D-printed module** designed specifi
 
 | Stage | Component | Description |
 |---|---|---|
-| Image Acquisition | ESP32-CAM | Captures continuous document frames over Wi-Fi HTTP stream |
+| Image Acquisition | Laptop webcam (OpenCV) | Captures continuous 720p frames from the built-in camera |
 | Image Processing | OpenCV | Applies denoising, sharpening, adaptive thresholding, perspective warp |
 | Document Detection | Contour / YOLO heuristics | Detects and crops the printed document region |
 | Text Extraction | VLM (Qwen2.5-VL via Ollama, or Gemini) | Context-aware, high-accuracy text recognition from the cropped image |
 | Text-to-Speech | macOS `say` / Windows SAPI / espeak-ng (`speech.py`) | Converts extracted text to natural speech |
-| Audio Output | Speaker / 3.5 mm jack | Delivers speech to the user |
+| Audio Output | Laptop speakers / headphones | Delivers speech to the user |
 
 ---
 
 ## Hardware Design & 3D-Printed Module
+
+> Original wearable prototype. Not required to run the current laptop version.
 
 The Fusion 360 enclosure houses all electronics and is designed to be 3D-printed. Below are renders and photos of the module:
 
@@ -128,11 +132,10 @@ The 3D-printed module integrates:
 
 | Component | Specification |
 |---|---|
-| ESP32-CAM | AI-Thinker module with OV2640 camera |
-| Battery | 3.7V LiPo, 600mAh |
-| Boost Converter | MT3608, output 5V |
-| Charging Module | TP4056 with USB-C input |
-| Speaker / Earphone | 3.5mm jack or small 8Ω speaker |
+| Laptop | macOS (Apple Silicon recommended), Windows or Linux; 16 GB RAM recommended for the local 7B model |
+| Camera | Built-in webcam, or any USB webcam (set `CAMERA_INDEX`) |
+| Microphone | Built-in mic, for voice commands |
+| Audio | Built-in speakers or headphones |
 
 ### Software
 
@@ -157,8 +160,8 @@ The 3D-printed module integrates:
 Copy `.env.example` to `.env` in the project root and fill it in:
 
 ```env
-# IP address of the ESP32-CAM or phone IP camera
-PHONE_IP=192.168.x.x
+# Laptop webcam: 0 = built-in camera, 1/2... = external USB camera
+CAMERA_INDEX=0
 
 # --- For Gemini cloud reader (assitant.py) ---
 API_KEY=<YOUR_GOOGLE_GENERATIVE_AI_KEY>
@@ -168,11 +171,7 @@ OLLAMA_HOST=http://localhost:11434
 VLM_MODEL=qwen2.5vl:7b
 ```
 
-Camera stream URLs used by each script (override either with `CAMERA_URL`):
-- `assitant.py` → `http://{PHONE_IP}:8080/video` (Android IP Webcam app)
-- `smart_reader_qwen.py` → `http://{PHONE_IP}:81/stream` (ESP32-CAM CameraWebServer)
-
-Other optional settings: `CAMERA_ROTATION` (`-90`, `0`, `90`, `180`), `YOLO_DEVICE` (`mps` / `cpu`), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute), `VLM_BASE_URL` (e.g. `http://localhost:1234/v1` for LM Studio), `GEMINI_MODEL`.
+Other optional settings: `YOLO_DEVICE` (`mps` / `cpu`), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute), `VLM_BASE_URL` (e.g. `http://localhost:1234/v1` for LM Studio), `GEMINI_MODEL`.
 
 ---
 
@@ -198,7 +197,7 @@ ollama pull qwen2.5vl:7b
 ```
 
 **macOS permissions.** The first time you run a script, macOS will ask for these. Grant them to the app you run it from (Terminal, iTerm or VS Code):
-- **Local Network** (System Settings → Privacy & Security → Local Network): required to reach the ESP32-CAM or phone on your Wi-Fi. If you deny it, the camera stream silently fails to open.
+- **Camera** (System Settings → Privacy & Security → Camera): required for the webcam.
 - **Microphone** (System Settings → Privacy & Security → Microphone): required for voice commands in `smart_reader_qwen.py`.
 
 ### Windows / Linux
@@ -307,11 +306,11 @@ The system detects, enhances, extracts, and reads aloud with minimal user intera
 
 | Issue | Solution |
 |---|---|
-| Cannot connect to camera stream | Verify `PHONE_IP` in `.env`. Confirm the camera app / ESP32 is streaming at the URL printed on startup. |
+| `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). For an external camera, try `CAMERA_INDEX=1`. |
 | Ollama / Qwen errors | Ensure the Ollama app (or `ollama serve`) is running and the model is pulled: `ollama pull qwen2.5vl:7b`. Check `VLM_MODEL` matches `ollama list`. |
 | Google Gemini API failures | Check `API_KEY` in `.env` and network connectivity. |
 | No speech output | macOS: run `say hello` in the terminal and check the output device. Linux: install `espeak-ng`. Windows: SAPI ships with the OS. |
-| Camera fails to open on macOS | Allow **Local Network** access for your terminal / VS Code (System Settings → Privacy & Security → Local Network), then restart it. |
+| Camera fails to open on macOS | Allow **Camera** access for your terminal / VS Code (System Settings → Privacy & Security → Camera), then fully quit and reopen it. |
 | `PyAudio` fails to build on macOS | `brew install portaudio`, then reinstall with the `CFLAGS`/`LDFLAGS` shown in Installation. |
 | Voice commands never trigger | Allow **Microphone** access for your terminal / VS Code. |
 | `yolov8n.pt` not found | Ultralytics downloads it on first run (internet needed once). Otherwise download it from [Ultralytics](https://github.com/ultralytics/assets/releases) into the project root. |
