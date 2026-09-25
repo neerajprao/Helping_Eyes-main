@@ -4,17 +4,16 @@ import google.generativeai as genai
 import time
 import os
 import sys
-import torch
 from dotenv import load_dotenv
 from PIL import Image
-from ultralytics import YOLO
 import re
 from speech import Speaker
+from text_vision import find_text_region, mirror_box
 
 # ================= CONFIG =================
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
-# Laptop webcam: 0 = built-in camera; try 1, 2... for an external USB camera
+# 0 = first camera macOS lists (a plugged-in USB camera usually comes first)
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 
 if not API_KEY:
@@ -25,11 +24,9 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
 
-# ================= YOLO =================
-# Apple Silicon GPU (MPS) when available, else CPU. Override with YOLO_DEVICE.
-YOLO_DEVICE = os.getenv("YOLO_DEVICE") or ("mps" if torch.backends.mps.is_available() else "cpu")
-finder_ai = YOLO("yolov8n.pt")
-TARGET_CLASSES = [73]  # book
+# ================= TEXT FINDING (Apple Vision) =================
+MIN_TEXT_CHARS = 8     # need this many characters to count as text
+MIN_TEXT_HEIGHT = 14   # px on the 720p preview; smaller text -> "Bring Closer"
 
 # ================= SPEECH =================
 speaker = Speaker()
@@ -132,7 +129,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-    speak("System online. Show me a book.")
+    speak("System online. Show me something to read.")
 
     last_guidance_time = 0
     stable_start = 0
@@ -148,7 +145,10 @@ def main():
         if not ret:
             break
 
-        display = cv2.flip(frame, 1)
+        # Find text on the unmirrored image (mirrored text can't be read);
+        # the preview is mirrored like a selfie view.
+        small = cv2.resize(frame, (1280, 720))
+        display = cv2.flip(small, 1)
 
         # Vision loop pauses while speaking
         if speaker.is_speaking:
@@ -160,77 +160,69 @@ def main():
                 break
             continue
 
-        results = finder_ai(display, conf=0.3, verbose=False, device=YOLO_DEVICE)
-        found = False
+        box, lines = find_text_region(small, MIN_TEXT_CHARS)
 
-        for r in results:
-            for box in r.boxes:
-                if int(box.cls[0]) in TARGET_CLASSES:
-                    found = True
+        if box is not None:
+            x1, y1, x2, y2 = mirror_box(box, display.shape[1])
+            cv2.rectangle(display, (x1, y1), (x2, y2), (255, 100, 0), 3)
 
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cv2.rectangle(display, (x1, y1), (x2, y2), (255, 100, 0), 3)
+            cx = (x1 + x2) // 2
+            cy = (y1 + y2) // 2
+            fx = display.shape[1] // 2
+            fy = display.shape[0] // 2
 
-                    cx = (x1 + x2) // 2
-                    cy = (y1 + y2) // 2
-                    fx = display.shape[1] // 2
-                    fy = display.shape[0] // 2
+            offx = cx - fx
+            offy = cy - fy
 
-                    offx = cx - fx
-                    offy = cy - fy
+            heights = sorted(l.box[3] - l.box[1] for l in lines)
+            text_height = heights[len(heights) // 2]
 
-                    area = (x2 - x1) * (y2 - y1)
-                    coverage = area / (display.shape[0] * display.shape[1])
+            centered = True
 
-                    centered = True
+            if abs(offx) > TOLERANCE + MICRO_TOL:
+                centered = False
+                if time.time() - last_guidance_time > 2:
+                    speak("Move Left" if offx > 0 else "Move Right")
+                    last_guidance_time = time.time()
 
-                    if abs(offx) > TOLERANCE + MICRO_TOL:
-                        centered = False
-                        if time.time() - last_guidance_time > 2:
-                            speak("Move Left" if offx > 0 else "Move Right")
-                            last_guidance_time = time.time()
+            elif abs(offy) > TOLERANCE + MICRO_TOL:
+                centered = False
+                if time.time() - last_guidance_time > 2:
+                    speak("Move Up" if offy > 0 else "Move Down")
+                    last_guidance_time = time.time()
 
-                    elif abs(offy) > TOLERANCE + MICRO_TOL:
-                        centered = False
-                        if time.time() - last_guidance_time > 2:
-                            speak("Move Up" if offy > 0 else "Move Down")
-                            last_guidance_time = time.time()
+            elif text_height < MIN_TEXT_HEIGHT:
+                centered = False
+                if time.time() - last_guidance_time > 2:
+                    speak("Bring Closer")
+                    last_guidance_time = time.time()
 
-                    elif coverage < 0.15:
-                        centered = False
-                        if time.time() - last_guidance_time > 2:
-                            speak("Bring Closer")
-                            last_guidance_time = time.time()
+            if centered:
+                if not is_stable:
+                    is_stable = True
+                    stable_start = time.time()
 
-                    if centered:
-                        if not is_stable:
-                            is_stable = True
-                            stable_start = time.time()
+                held = time.time() - stable_start
 
-                        held = time.time() - stable_start
+                if held < HOLD_TIME:
+                    cv2.putText(display,
+                                f"HOLD STILL {HOLD_TIME-held:.1f}s",
+                                (50, 100),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.2, (0, 255, 255), 3)
+                else:
+                    cv2.putText(display, "CAPTURING",
+                                (50, 100),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.2, (0, 255, 0), 3)
 
-                        if held < HOLD_TIME:
-                            cv2.putText(display,
-                                        f"HOLD STILL {HOLD_TIME-held:.1f}s",
-                                        (50, 100),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        1.2, (0, 255, 255), 3)
-                        else:
-                            cv2.putText(display, "CAPTURING",
-                                        (50, 100),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        1.2, (0, 255, 0), 3)
-
-                            last_text = analyze_image(frame, last_text)
-                            is_stable = False
-                    else:
-                        is_stable = False
-
-                    break
-
-        if not found:
+                    last_text = analyze_image(frame, last_text)
+                    is_stable = False
+            else:
+                is_stable = False
+        else:
             is_stable = False
-            cv2.putText(display, "Searching...",
+            cv2.putText(display, "Searching for text...",
                         (50, 50),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1, (0, 0, 255), 2)

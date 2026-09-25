@@ -12,7 +12,7 @@
 8. [Installation](#installation)
 9. [Running the System](#running-the-system)
 10. [Usage & Controls](#usage--controls)
-11. [Performance & Evaluation](#performance--evaluation)
+11. [Performance](#performance)
 12. [Innovations](#innovations)
 13. [References](#references)
 14. [Troubleshooting](#troubleshooting)
@@ -28,21 +28,21 @@ Visually impaired individuals face significant barriers when accessing printed m
 - **Low-light performance:** Real-time document reading in poor lighting conditions remains a challenge for traditional OCR-based systems.
 - **Accuracy:** Conventional OCR pipelines struggle with blurred images, complex backgrounds, and varied fonts.
 
-Helping Eyes addresses these gaps with an affordable, autonomous reading assistant that runs on an ordinary laptop and its webcam.
+Helping Eyes addresses these gaps with an affordable, autonomous reading assistant that runs on an ordinary Mac and a webcam.
 
 ---
 
 ## Introduction
 
-**Helping Eyes** is an AI-powered assistive reading application for visually impaired users. It runs entirely on a laptop, using the built-in webcam, to give a seamless, hands-free reading experience.
+**Helping Eyes** is an assistive reading application for visually impaired users. It runs on a Mac with a USB or built-in webcam and gives a hands-free reading experience.
 
 Core capabilities:
 
-- Captures printed documents in real time using the **laptop's webcam**.
-- Enhances captured frames using **OpenCV** image preprocessing techniques.
-- Detects document boundaries automatically before passing the image forward.
-- Extracts text intelligently using a **Vision Language Model (VLM)** — replacing conventional OCR for dramatically improved accuracy.
-- Converts the extracted text to natural speech via a **Text-to-Speech (TTS)** engine and plays it through the laptop's speakers or headphones.
+- Captures text in real time from a **webcam**.
+- Finds text live on anything — pages, books, medicine packs, labels, signs, screens — using **Apple Vision**.
+- Guides the user by voice ("Move closer", "Move left") until the text is in view.
+- Reads the text on-device with Apple Vision, or with **Google Gemini** in the cloud version.
+- Speaks the text through the laptop's speakers or headphones.
 
 The entire pipeline runs with minimal user interaction, making the application highly accessible.
 
@@ -50,9 +50,8 @@ The entire pipeline runs with minimal user interaction, making the application h
 
 ## Objectives
 
-- Detect printed documents automatically from a live camera feed.
-- Enhance captured images using OpenCV (denoising, contrast adjustment, perspective correction).
-- Integrate a Vision Language Model (VLM) for context-aware, accurate text extraction.
+- Detect text automatically from a live camera feed, on any object.
+- Extract text accurately and quickly, on-device.
 - Convert extracted text into clear speech output.
 - Run the complete system on an ordinary laptop, with no extra hardware.
 
@@ -64,12 +63,13 @@ The end-to-end pipeline follows a linear flow from image capture to audio output
 
 ```mermaid
 flowchart LR
-    A[Printed document] --> B[Laptop webcam]
-    B --> C[Document detection<br/>YOLO + OpenCV]
-    C --> D[Image processing<br/>OpenCV]
-    D --> E[VLM text extraction<br/>Qwen2.5-VL / Gemini]
-    E --> F[Text-to-speech]
-    F --> G[Laptop speakers /<br/>headphones]
+    A[Printed text] --> B[Webcam]
+    B --> C[Find text live<br/>Apple Vision, fast mode]
+    C --> D[Voice guidance<br/>move closer / left / hold still]
+    D --> E[Read text<br/>Apple Vision accurate mode<br/>or Gemini]
+    E --> F[Skip repeats<br/>compare with last read]
+    F --> G[Text-to-speech]
+    G --> H[Speakers /<br/>headphones]
 ```
 
 ---
@@ -80,11 +80,12 @@ flowchart LR
 
 | Stage | Component | Description |
 |---|---|---|
-| Image Acquisition | Laptop webcam (OpenCV) | Captures continuous 720p frames from the built-in camera |
-| Image Processing | OpenCV | Applies denoising, sharpening, adaptive thresholding, perspective warp |
-| Document Detection | Contour / YOLO heuristics | Detects and crops the printed document region |
-| Text Extraction | VLM (Qwen2.5-VL via Ollama, or Gemini) | Context-aware, high-accuracy text recognition from the cropped image |
-| Text-to-Speech | macOS `say` / Windows SAPI / espeak-ng (`speech.py`) | Converts extracted text to natural speech |
+| Image Acquisition | Webcam (OpenCV) | Captures continuous 720p frames |
+| Text Detection | Apple Vision, fast mode (`text_vision.py`) | Finds every line of text in each frame (~10 ms) |
+| User Guidance | `smart_reader.py` / `assitant.py` | Spoken hints until the text is readable and in view, then a short hold-still countdown |
+| Text Extraction | Apple Vision, accurate mode — or Gemini 2.5 Flash | Reads all text, line by line, in reading order |
+| Repeat Filtering | Word-overlap similarity | Skips a page it has already read; reads only new words when a page is partly new |
+| Text-to-Speech | macOS `say` (`speech.py`) | Converts extracted text to speech, one phrase at a time |
 | Audio Output | Laptop speakers / headphones | Delivers speech to the user |
 
 ---
@@ -95,8 +96,8 @@ flowchart LR
 
 | Component | Specification |
 |---|---|
-| Laptop | macOS (Apple Silicon recommended), Windows or Linux; 16 GB RAM recommended for the local 7B model |
-| Camera | Built-in webcam, or any USB webcam (set `CAMERA_INDEX`) |
+| Computer | Mac running macOS 13 or later (Apple Silicon recommended) |
+| Camera | USB webcam or the built-in camera (set `CAMERA_INDEX`) |
 | Microphone | Built-in mic, for voice commands |
 | Audio | Built-in speakers or headphones |
 
@@ -104,48 +105,38 @@ flowchart LR
 
 | Component | Purpose |
 |---|---|
-| OpenCV | Image capture, preprocessing, document detection |
-| NumPy | Array and matrix operations |
-| Qwen2.5-VL 7B (via Ollama) | Local Vision Language Model for text extraction |
-| Google Gemini API | Cloud VLM alternative (via `google-generativeai`) |
-| `speech.py` | Cross-platform TTS: macOS `say`, Windows SAPI (PowerShell), Linux `espeak-ng` |
+| Apple Vision (`pyobjc-framework-Vision`) | On-device text detection and recognition |
+| OpenCV | Camera capture and on-screen overlays |
+| NumPy | Array operations |
+| Google Gemini API | Cloud text reading in `assitant.py` (via `google-generativeai`) |
+| `speech.py` | Text-to-speech using the macOS `say` command |
 | SpeechRecognition + PyAudio | Voice commands ("stop", "repeat", "next") |
-| Ultralytics YOLOv8 | Object/document detection (uses `yolov8n.pt`) |
 
-> **Note:** The TTS backend is picked automatically by `speech.py`. macOS uses the built-in `say` command, so no extra install is needed. On Apple Silicon, YOLO runs on the GPU (MPS) automatically.
+> **Note:** Apple Vision is part of macOS, so the app runs on Macs only. `speech.py` itself also supports Windows and Linux.
 
 ---
-
-
 
 ## Environment Setup
 
 Copy `.env.example` to `.env` in the project root and fill it in:
 
 ```env
-# Laptop webcam: 0 = built-in camera, 1/2... = external USB camera
+# 0 = first camera macOS lists (a plugged-in USB camera usually comes first)
 CAMERA_INDEX=0
 
-# --- For Gemini cloud reader (assitant.py) ---
+# Gemini reader only (assitant.py)
 API_KEY=<YOUR_GOOGLE_GENERATIVE_AI_KEY>
-
-# --- For local Qwen reader (smart_reader_qwen.py) ---
-OLLAMA_HOST=http://localhost:11434
-VLM_MODEL=qwen2.5vl:7b
 ```
 
-Other optional settings: `YOLO_DEVICE` (`mps` / `cpu`), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute), `VLM_BASE_URL` (e.g. `http://localhost:1234/v1` for LM Studio), `GEMINI_MODEL`.
+Other optional settings: `TEXT_LANGUAGES` (e.g. `en-US,hi-IN`; unset = auto-detect), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute), `GEMINI_MODEL`.
 
 ---
 
 ## Installation
 
-### macOS (Apple Silicon or Intel)
-
 ```bash
 # 1. System dependencies (PortAudio is needed to build PyAudio for voice commands)
 brew install python@3.13 portaudio
-brew install --cask ollama            # or download from https://ollama.com/download
 
 # 2. Virtual environment (Python 3.11–3.13 recommended)
 python3.13 -m venv .venv
@@ -154,44 +145,31 @@ source .venv/bin/activate
 # 3. Python dependencies (the flags point the PyAudio build at Homebrew's PortAudio)
 CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" \
   python -m pip install -r requirment.txt
-
-# 4. Local Qwen reader only: pull a vision model (open the Ollama app, or run `ollama serve`)
-ollama pull qwen2.5vl:7b
 ```
 
 **macOS permissions.** The first time you run a script, macOS will ask for these. Grant them to the app you run it from (Terminal, iTerm or VS Code):
 - **Camera** (System Settings → Privacy & Security → Camera): required for the webcam.
-- **Microphone** (System Settings → Privacy & Security → Microphone): required for voice commands in `smart_reader_qwen.py`.
-
-### Windows / Linux
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate                # Windows
-source .venv/bin/activate              # Linux
-python -m pip install -r requirment.txt
-# Linux only: sudo apt install espeak-ng portaudio19-dev
-```
-
-`yolov8n.pt` is downloaded automatically by Ultralytics on first run.
+- **Microphone** (System Settings → Privacy & Security → Microphone): required for voice commands in `smart_reader.py`.
 
 ---
 
 ## Running the System
 
-### Option A — Gemini Cloud Reader (simple, requires internet + API key)
+### Option A — Smart Reader (on-device, recommended)
+
+```bash
+python smart_reader.py
+```
+
+Text is found and read on the Mac by Apple Vision. Voice commands use Google's online speech recognition, so they need internet.
+
+### Option B — Gemini Reader (cloud, requires internet + API key)
 
 ```bash
 python assitant.py
 ```
 
-### Option B — Local Qwen Reader (text extraction runs locally)
-
-```bash
-python smart_reader_qwen.py
-```
-
-Text extraction runs locally through Ollama. Voice commands use Google's online speech recognition, so they need internet.
+Apple Vision finds the text; Gemini reads it.
 
 ---
 
@@ -201,52 +179,39 @@ Text extraction runs locally through Ollama. Voice commands use Google's online 
 |---|---|
 | `q` | Quit the application |
 | `s` | Stop current speech output |
-| `r` | Restart camera capture |
-| Voice: `"stop"` / `"stop speaking"` | Stop speech (microphone must be active) |
+| `r` | Restart capture: read the next text in full, even if it looks like the last one |
+| Voice: `"stop"` | Stop speech |
 | Voice: `"repeat"` | Repeat the last extracted text |
-| Voice: `"next"` | Move to the next detected document region |
+| Voice: `"next"` | Read the next text in full |
 
-A window titled **Smart Reader** (or **Smart Reader - Qwen**) will display the live camera feed with detection overlays.
+`assitant.py` supports only `q`. Click the video window before pressing keys. The microphone listens only while the app is not speaking, so use `s` to interrupt.
+
+A window titled **Smart Reader** displays the live camera feed with a box around each line of text found.
 
 ---
 
-## Performance & Evaluation
+## Performance
 
-### VLM vs. Traditional OCR (EasyOCR)
+Measured on an Apple Silicon Mac with a 1280×720 test image:
 
-The system was benchmarked against EasyOCR on blurred real-world real-world camera captures:
-
-| Metric | EasyOCR | VLM (Qwen3-VI-8B) |
-|---|---|---|
-| Character Error Rate (CER) | 0.957 | **0.017** |
-| Word Error Rate (WER) | 1.000 | **0.089** |
-| Character Accuracy (%) | 4.28 | **98.26** |
-| Word Accuracy (%) | 0.00 | **91.06** |
-| Similarity (%) | 8.11 | **99.00** |
-
-The VLM approach achieves near-perfect character accuracy (98.26%) vs. essentially 0% for EasyOCR on the same blurred images, demonstrating the decisive advantage of contextual vision-language understanding over traditional pixel-level OCR.
-
-### Pipeline Latency
-
-| Operation | Average Time |
+| Operation | Time |
 |---|---|
-| Frame Capture | 0.03 s |
-| Document Detection | 0.10 s |
-| Image Preprocessing | 0.15 s |
-| VLM Processing | 10.0 s |
-| Speech Generation | 1.0 s |
-
-Total end-to-end latency is approximately **~11.3 seconds** per document read. The dominant cost is VLM inference; this can be reduced with a faster GPU, quantised models, or by switching to the Gemini cloud API.
+| Find text (Apple Vision, fast mode) | ~10 ms per frame |
+| Read text (Apple Vision, accurate mode) | ~0.1–0.2 s |
+| Read text (Gemini, cloud) | depends on network |
 
 ---
 
 ## Innovations
 
-### 1. Vision Language Models Instead of Traditional OCR
-Rather than relying solely on rule-based OCR (e.g. Tesseract, EasyOCR), Helping Eyes employs a VLM (Qwen3-VI-8B) that brings contextual understanding to text recognition. This yields dramatically higher accuracy on blurred, low-contrast, and real-world camera images — as confirmed by the evaluation metrics above.
+### 1. Text Detection Instead of Object Detection
+Rather than looking for specific objects such as books, Helping Eyes looks for text itself. Anything with readable text — a page, a medicine strip, a food packet, a sign or a screen — triggers guidance and reading.
 
-### 2. Autonomous Document Reading Pipeline
-The system detects, enhances, extracts, and reads aloud with minimal user interaction. No button presses or menu navigation are required — the application identifies when a document is in view and begins reading automatically, making it genuinely accessible for users with no or limited vision.
+### 2. Fast, Private, On-Device Reading
+Apple Vision reads text on the Mac in a fraction of a second, with no model downloads and no data leaving the device.
+
+### 3. Autonomous Reading Pipeline
+The system detects, guides, extracts, and reads aloud with minimal user interaction. No button presses or menu navigation are required — the application notices when text is in view and begins reading automatically, making it genuinely accessible for users with no or limited vision.
 
 ---
 
@@ -258,7 +223,7 @@ The system detects, enhances, extracts, and reads aloud with minimal user intera
 
 3. A. Sharma, A. Srivastava, and A. Vashishth, "An Assistive Reading System for Visually Impaired using OCR and TTS," *International Journal of Computer Applications*, vol. 95, no. 2, pp. 13–18, Jun. 2014. doi: 10.5120/16566-6231
 
-4. JaidedAI, "EasyOCR: Ready-to-use OCR with 80+ supported languages." GitHub. https://github.com/JaidedAI/EasyOCR
+4. Apple, "Recognizing Text in Images," Apple Developer Documentation (Vision framework). https://developer.apple.com/documentation/vision/recognizing-text-in-images
 
 ---
 
@@ -266,12 +231,12 @@ The system detects, enhances, extracts, and reads aloud with minimal user intera
 
 | Issue | Solution |
 |---|---|
-| `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). For an external camera, try `CAMERA_INDEX=1`. |
-| Ollama / Qwen errors | Ensure the Ollama app (or `ollama serve`) is running and the model is pulled: `ollama pull qwen2.5vl:7b`. Check `VLM_MODEL` matches `ollama list`. |
-| Google Gemini API failures | Check `API_KEY` in `.env` and network connectivity. |
-| No speech output | macOS: run `say hello` in the terminal and check the output device. Linux: install `espeak-ng`. Windows: SAPI ships with the OS. |
+| `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). Try the other `CAMERA_INDEX` (`0` or `1`). |
+| Wrong camera opens | Swap `CAMERA_INDEX` between `0` and `1`. An iPhone nearby can also appear as a camera (Continuity Camera). |
 | Camera fails to open on macOS | Allow **Camera** access for your terminal / VS Code (System Settings → Privacy & Security → Camera), then fully quit and reopen it. |
-| `PyAudio` fails to build on macOS | `brew install portaudio`, then reinstall with the `CFLAGS`/`LDFLAGS` shown in Installation. |
+| Text is found but never read | Hold the text steady and closer; the app waits for readable text size and a short hold-still. |
+| Wrong language read | Set `TEXT_LANGUAGES` in `.env`, e.g. `en-US,hi-IN`. |
+| Google Gemini API failures | Check `API_KEY` in `.env` and network connectivity. |
+| No speech output | Run `say hello` in the terminal and check the output device. |
+| `PyAudio` fails to build | `brew install portaudio`, then reinstall with the `CFLAGS`/`LDFLAGS` shown in Installation. |
 | Voice commands never trigger | Allow **Microphone** access for your terminal / VS Code. |
-| `yolov8n.pt` not found | Ultralytics downloads it on first run (internet needed once). Otherwise download it from [Ultralytics](https://github.com/ultralytics/assets/releases) into the project root. |
-| Very slow VLM inference | On Apple Silicon Ollama uses the GPU automatically. Try a smaller model (`ollama pull qwen2.5vl:3b`, then set `VLM_MODEL=qwen2.5vl:3b`) or use the Gemini reader. |
