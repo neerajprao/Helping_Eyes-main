@@ -1,16 +1,22 @@
 import cv2
 import time
 import threading
+import queue
 import os
 import re
+import sys
 import numpy as np
 import speech_recognition as sr
 import logging
 from typing import Tuple, Optional
 from collections import deque
 from dotenv import load_dotenv
+
+load_dotenv()  # before importing modules that read settings from .env
+
 from speech import Speaker
 from text_vision import find_text_region, read_text
+from doc_assistant import DocAssistant, READ_ALL, LLM_MODEL, wants_read_all
 
 # ================= LOGGING =================
 logging.basicConfig(
@@ -20,18 +26,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ================= CONFIG =================
-load_dotenv()
 # 0 = first camera macOS lists (a plugged-in USB camera usually comes first)
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 
-# ================= READ CONTROL =================
-READ_COOLDOWN = 3          # seconds between two reads
+# ================= CAPTURE CONTROL =================
 MIN_TEXT_CHARS = 8         # ignore specks: need this many characters to count as text
 MIN_TEXT_HEIGHT = 14       # px on the 720p preview; smaller text -> "Move closer"
 DETECT_INTERVAL = 0.1      # look for text 10x a second (plenty for guidance, saves CPU)
+HOLD_TIME = 0.5            # seconds the text must stay steady before capturing
+REARM_AFTER = 1.5          # seconds with no text in view before a new capture is allowed
+ECHO_GUARD = 0.7           # seconds after the app stops talking before the mic listens
 
 # ================= SPEECH =================
 speaker = Speaker()
+doc = DocAssistant()
 
 def speak(text: str) -> None:
     """Queue text for speech synthesis"""
@@ -40,73 +48,135 @@ def speak(text: str) -> None:
     clean = re.sub(r"[*#_`~]", "", text).strip()
     if not clean:
         return
-    print(f"🗣️ {clean[:120]}")
-    logger.info(f"Speaking: {clean[:80]}")
+    print(f"🗣️ {clean}")
     speaker.say(clean)
 
 def stop_speech() -> None:
-    """Stop all speech and clear queue"""
+    """Stop talking and stop any answer still being generated"""
     print("🛑 Stopping speech")
+    doc.cancel()
     speaker.stop()
 
-def restart_capture():
-    """Stop speech and restart capture flow"""
-    global _restart_capture
-    print("🔄 Restarting capture")
+# ================= SHARED STATE =================
+_running = True
+_thinking = False          # the model is working on an answer
+_rearm_requested = False   # user asked for a new capture
+_last_answer = ""          # for "repeat"
+_requests: "queue.Queue[str]" = queue.Queue()
+
+# Short spoken commands handled by the app itself, not the model
+_STOP = re.compile(r"^(stop|stop (it|talking|speaking|reading)|be quiet|quiet|shut up|cancel)[.!]*$")
+_REPEAT = re.compile(r"^(repeat|repeat that|say (that|it) again|again|pardon|what)[.?!]*$")
+_NEW_CAPTURE = re.compile(r"^(next|next page|new page|scan( again)?|capture( again)?|read something else|new (text|item|document))[.!]*$")
+
+def request_new_capture() -> None:
+    global _rearm_requested
     stop_speech()
-    _restart_capture = True
+    _rearm_requested = True
+    speak("Okay. Show me the next thing.")
 
-# ================= VOICE CONTROL =================
-_voice_thread_running = True
-_force_next_capture = False
-_restart_capture = False
+def speak_document() -> None:
+    """Read everything Apple Vision captured, exactly as captured"""
+    global _last_answer
+    _last_answer = doc.document
+    speak(doc.document)
 
-def voice_listener(get_last_text_callback) -> None:
-    """Voice command listener with error recovery"""
-    global _force_next_capture, _voice_thread_running
+# ================= REQUEST HANDLING =================
+def handle_request(text: str) -> None:
+    """Route one spoken or typed request: app command, read-all, or the model"""
+    global _thinking, _last_answer
 
+    request = text.strip()
+    lower = request.lower()
+    if not request:
+        return
+    print(f"🙋 {request}")
+
+    if _STOP.match(lower):
+        stop_speech()
+        return
+    if _REPEAT.match(lower):
+        stop_speech()
+        speak(_last_answer or "Nothing to repeat yet.")
+        return
+    if _NEW_CAPTURE.match(lower):
+        request_new_capture()
+        return
+
+    if not doc.has_document():
+        speak("I haven't captured any text yet. Hold something up to the camera.")
+        return
+
+    stop_speech()
+
+    if wants_read_all(lower):
+        speak_document()
+        return
+
+    _thinking = True
+    answer = []
+    try:
+        for sentence in doc.ask(request):
+            if sentence == READ_ALL:
+                speak_document()
+                return
+            answer.append(sentence)
+            speak(sentence)  # speak each sentence as soon as it's ready
+    finally:
+        _thinking = False
+    if answer:
+        _last_answer = " ".join(answer)
+
+def request_worker() -> None:
+    """Handles requests one at a time, off the camera loop"""
+    while _running:
+        try:
+            text = _requests.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        try:
+            handle_request(text)
+        except Exception as e:
+            logger.error(f"❌ Request error: {e}")
+
+# ================= VOICE INPUT =================
+def voice_listener() -> None:
+    """Listens for spoken questions and commands (not while the app is talking)"""
     try:
         recognizer = sr.Recognizer()
         recognizer.operation_timeout = 5  # don't wait forever on Google's server
+        recognizer.pause_threshold = 1.0  # a 1 s pause ends the question
         mic = sr.Microphone()
 
         with mic as source:
             recognizer.adjust_for_ambient_noise(source, duration=1)
 
-        print("🎤 Voice control active...")
-        logger.info("Voice listener started")
+        print("🎤 Voice control active... ask a question after the text is captured")
 
     except Exception as e:
         logger.error(f"❌ Voice listener initialization failed: {e}")
         return
 
-    while _voice_thread_running:
+    while _running:
         try:
-            if speaker.is_speaking:
+            # Wait until the app has been quiet for a moment (room echo)
+            if speaker.spoke_since(time.time() - ECHO_GUARD) or _thinking:
                 time.sleep(0.1)
                 continue
 
+            started = time.time()
             with mic as source:
-                audio = recognizer.listen(source, timeout=1, phrase_time_limit=2)
+                audio = recognizer.listen(source, timeout=1, phrase_time_limit=12)
+
+            # The app started talking while we were recording: that's our own
+            # voice in the recording, not the user. Throw it away.
+            if speaker.spoke_since(started):
+                continue
 
             try:
-                command = recognizer.recognize_google(audio).lower()
+                command = recognizer.recognize_google(audio)
                 print(f"🎤 Heard: {command}")
-                logger.info(f"Command: {command}")
-
-                if "stop" in command:
-                    stop_speech()
-                elif "repeat" in command:
-                    stop_speech()
-                    last_text = get_last_text_callback()
-                    if last_text and last_text.strip():
-                        speak(last_text)
-                    else:
-                        speak("Nothing to repeat")
-                elif "next" in command:
-                    stop_speech()
-                    _force_next_capture = True
-                    speak("Next content")
+                _requests.put(command)
             except sr.UnknownValueError:
                 pass
             except sr.RequestError as e:
@@ -118,76 +188,17 @@ def voice_listener(get_last_text_callback) -> None:
             logger.error(f"❌ Voice error: {e}")
             time.sleep(1)
 
-# ================= TEXT UTILS =================
-def normalize_text(t: str) -> str:
-    """Normalize text for comparison"""
-    t = re.sub(r"[^a-z0-9\s]", "", t.lower())
-    return re.sub(r"\s+", " ", t).strip()
-
-def similarity(a: str, b: str) -> float:
-    """Calculate Jaccard similarity between two texts"""
-    if not a or not b:
-        return 0.0
-    sa, sb = set(normalize_text(a).split()), set(normalize_text(b).split())
-    return len(sa & sb) / len(sa | sb) if sa and sb else 0.0
-
-# ================= READING WITH APPLE VISION =================
-IGNORE_THRESHOLD = 0.96
-PARTIAL_THRESHOLD = 0.80
-LAST_READ = 0
-_same_announced = False
-
-def analyze_image(frame: np.ndarray, last_text: str) -> str:
-    """Read all text in the full-resolution frame and speak what's new"""
-    global LAST_READ, _force_next_capture, _same_announced
-
-    if time.time() - LAST_READ < READ_COOLDOWN:
-        return last_text
-    LAST_READ = time.time()
-
-    try:
-        text = read_text(frame)
-    except Exception as e:
-        logger.error(f"❌ Apple Vision error: {e}")
-        speak("Could not read text. Try again.")
-        return last_text
-
-    if not text.strip():
-        speak("No text found")
-        return last_text
-
-    logger.info(f"📖 Read {len(text)} characters")
-
-    if _force_next_capture:
-        _force_next_capture = False
-        _same_announced = False
-        speak(text)
-        return text
-
-    sim = similarity(text, last_text)
-    logger.info(f"📊 Similarity: {sim:.2f}")
-
-    if sim >= IGNORE_THRESHOLD:
-        # Say it once per page, not every time the user keeps holding it
-        if not _same_announced:
-            speak("Same content")
-            _same_announced = True
-        return last_text
-
-    _same_announced = False
-
-    if PARTIAL_THRESHOLD <= sim < IGNORE_THRESHOLD:
-        old_words = set(normalize_text(last_text).split())
-        delta_words = [w for w in normalize_text(text).split() if w not in old_words]
-        if len(delta_words) >= 5:
-            delta = " ".join(delta_words)
-            speak("New text")
-            speak(delta)
-            return last_text + " " + delta
-        return last_text
-
-    speak(text)
-    return text
+# ================= TYPED INPUT =================
+def typed_listener() -> None:
+    """Type a question in the terminal and press Enter (handy for testing)"""
+    if not sys.stdin or not sys.stdin.isatty():
+        return
+    print("⌨️  You can also type a question here and press Enter.")
+    for line in sys.stdin:
+        if not _running:
+            break
+        if line.strip():
+            _requests.put(line.strip())
 
 # ================= BACKGROUND FRAME READER =================
 class BackgroundFrameReader(threading.Thread):
@@ -295,10 +306,29 @@ class BackgroundFrameReader(threading.Thread):
         time.sleep(0.5)
         self.close()
 
+# ================= CAPTURE =================
+def capture_document(frame: np.ndarray) -> bool:
+    """Read all text in the full-resolution frame and keep it for questions"""
+    try:
+        text = read_text(frame)
+    except Exception as e:
+        logger.error(f"❌ Apple Vision error: {e}")
+        speak("Could not read the text. Try again.")
+        return False
+
+    if not text.strip():
+        return False
+
+    stop_speech()
+    doc.set_document(text)
+    logger.info(f"📖 Captured {len(text)} characters:\n{text}")
+    speak("Got it. What would you like to know? You can also say, read everything.")
+    return True
+
 # ================= MAIN =================
 def main():
-    """Main loop: find text live, guide the user, read it when held still"""
-    global _force_next_capture, _voice_thread_running, _restart_capture
+    """Main loop: find text live, guide the user, capture it when held still"""
+    global _running, _rearm_requested
 
     # Open the webcam on the main thread first: macOS can only show the
     # camera-permission prompt from the main thread.
@@ -308,21 +338,18 @@ def main():
         return
     frame_reader.start()
 
+    if not doc.warm_up():
+        speak(f"Warning. I can't reach the language model. Please start Ollama and pull {LLM_MODEL}.")
+
     speak("System online. Show me something to read.")
 
-    last_text = ""
-
-    # Start voice listener
-    voice_thread = threading.Thread(
-        target=voice_listener,
-        args=(lambda: last_text,),
-        daemon=True
-    )
-    voice_thread.start()
+    for target in (request_worker, voice_listener, typed_listener):
+        threading.Thread(target=target, daemon=True).start()
 
     stable_start = 0
     is_stable = False
-    HOLD_TIME = 0.5
+    armed = True                 # a new capture is allowed
+    last_text_seen = time.time()
 
     # ================= GUIDE BOX CONFIG =================
     DISPLAY_W, DISPLAY_H = 1280, 720
@@ -388,7 +415,13 @@ def main():
         elif key == ord('s'):
             stop_speech()
         elif key == ord('r'):
-            restart_capture()
+            request_new_capture()
+        elif key == ord('a'):
+            if doc.has_document():
+                stop_speech()
+                speak_document()
+            else:
+                speak("Nothing captured yet.")
         return True
 
     # ================= MAIN LOOP =================
@@ -424,21 +457,19 @@ def main():
                     continue
                 last_frame_id = frame_id
 
-                if _restart_capture:
+                if _rearm_requested:
+                    _rearm_requested = False
+                    armed = True
                     is_stable = False
-                    stable_start = 0
-                    _force_next_capture = True
-                    _restart_capture = False
-                    speak("Ready for next capture")
 
                 # Preview is shown as the camera sees it (not mirrored)
                 small = cv2.resize(frame, (DISPLAY_W, DISPLAY_H))
                 display = small.copy()
 
-                if speaker.is_speaking:
-                    # Long text takes a while to speak; make it obvious the app
-                    # is busy talking (not frozen) and how to interrupt it.
-                    draw_guide_box(display, GUIDE_COLOR_IDLE, "READING...  S = stop   R = read next")
+                busy = speaker.is_speaking or _thinking
+                if busy:
+                    label = "THINKING..." if _thinking and not speaker.is_speaking else "SPEAKING...  S = stop"
+                    draw_guide_box(display, GUIDE_COLOR_IDLE, label)
                     cv2.imshow(window, display)
                     if not handle_key():
                         break
@@ -448,7 +479,7 @@ def main():
                 if np.mean(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)) < 50:
                     cv2.putText(display, "LOW LIGHT", (GUIDE_X1 + 10, GUIDE_Y2 - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    if time.time() - last_light_warning > 5:
+                    if armed and time.time() - last_light_warning > 5:
                         speak("Low light detected")
                         last_light_warning = time.time()
 
@@ -461,6 +492,13 @@ def main():
                     except Exception as e:
                         logger.error(f"❌ Detection error: {e}")
                         box, lines = None, []
+                    if box is not None:
+                        last_text_seen = time.time()
+
+                # Text gone for a moment -> ready for the next item
+                if not armed and time.time() - last_text_seen > REARM_AFTER:
+                    armed = True
+                    logger.info("🔓 Ready for a new capture")
 
                 if box is not None:
                     for line in lines:
@@ -468,6 +506,10 @@ def main():
                         cv2.rectangle(display, (lx1, ly1), (lx2, ly2), LINE_COLOR, 1)
                     cv2.rectangle(display, (box[0], box[1]), (box[2], box[3]), LINE_COLOR, 2)
 
+                if not armed:
+                    # Already captured this item: stay quiet and wait for questions
+                    draw_guide_box(display, GUIDE_COLOR_READY, "CAPTURED - ASK ME   R = new capture   A = read all")
+                elif box is not None:
                     hint = get_guidance(box, lines)
                     overlap = text_inside_guide(*box)
 
@@ -482,7 +524,8 @@ def main():
                             draw_guide_box(display, GUIDE_COLOR_READY, "CAPTURING...")
                             cv2.imshow(window, display)
                             cv2.waitKey(1)
-                            last_text = analyze_image(frame, last_text)
+                            if capture_document(frame):
+                                armed = False
                             is_stable = False
                     else:
                         is_stable = False
@@ -510,7 +553,8 @@ def main():
 
     finally:
         logger.info("🔴 Shutting down...")
-        _voice_thread_running = False
+        _running = False
+        doc.cancel()
         speaker.shutdown()
         try:
             frame_reader.stop()

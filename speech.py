@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class Speaker:
         self._generation = 0            # bumped by stop(); stale queued items are dropped
         self._proc: Optional[subprocess.Popen] = None
         self._closed = False
+        self.last_active = 0.0          # time.time() when speech was last queued or playing
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
         logger.info(f"✅ Speech ready ({self._cmd[0]})")
@@ -78,6 +80,10 @@ class Speaker:
     @property
     def is_speaking(self) -> bool:
         return self._busy.is_set()
+
+    def spoke_since(self, t: float) -> bool:
+        """True if anything was queued or playing at any point after time t"""
+        return self.is_speaking or self.last_active >= t
 
     def say(self, text: str) -> None:
         """Queue text to be spoken (non-blocking)."""
@@ -90,6 +96,7 @@ class Speaker:
                 logger.warning("⚠️ Speech queue full, skipping")
                 return
             self._busy.set()
+            self.last_active = time.time()
 
     def stop(self) -> None:
         """Silence current speech and discard everything queued."""
@@ -98,6 +105,7 @@ class Speaker:
             self._drain()
             if self._proc and self._proc.poll() is None:
                 self._proc.terminate()
+                self.last_active = time.time()
             self._busy.clear()
 
     def wait_until_idle(self, timeout: Optional[float] = None) -> bool:
@@ -158,5 +166,6 @@ class Speaker:
 
             with self._lock:
                 self._proc = None
+                self.last_active = time.time()
                 if self._queue.empty():
                     self._busy.clear()
