@@ -7,17 +7,15 @@
 3. [Objectives](#objectives)
 4. [System Architecture](#system-architecture)
 5. [Design Approach](#design-approach)
-6. [Hardware Design & 3D-Printed Module](#hardware-design--3d-printed-module)
-7. [Software Pipeline](#software-pipeline)
-8. [Hardware & Software Requirements](#hardware--software-requirements)
-9. [Environment Setup](#environment-setup)
-10. [Installation](#installation)
-11. [Running the System](#running-the-system)
-12. [Usage & Controls](#usage--controls)
-13. [Performance & Evaluation](#performance--evaluation)
-14. [Innovations](#innovations)
-15. [References](#references)
-16. [Troubleshooting](#troubleshooting)
+6. [Hardware & Software Requirements](#hardware--software-requirements)
+7. [Environment Setup](#environment-setup)
+8. [Installation](#installation)
+9. [Running the System](#running-the-system)
+10. [Usage & Controls](#usage--controls)
+11. [Performance & Evaluation](#performance--evaluation)
+12. [Innovations](#innovations)
+13. [References](#references)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -26,11 +24,11 @@
 Visually impaired individuals face significant barriers when accessing printed materials such as books, documents, and signage. Current assistive solutions suffer from several limitations:
 
 - **Cost:** Most commercially available reading aids are expensive and out of reach for many users.
-- **Portability:** Existing devices are bulky and not designed for everyday carry.
+- **Extra hardware:** Existing solutions need dedicated devices instead of equipment people already own.
 - **Low-light performance:** Real-time document reading in poor lighting conditions remains a challenge for traditional OCR-based systems.
 - **Accuracy:** Conventional OCR pipelines struggle with blurred images, complex backgrounds, and varied fonts.
 
-Helping Eyes addresses all of these gaps by delivering an affordable, compact, autonomous, and embedded reading solution.
+Helping Eyes addresses these gaps with an affordable, autonomous reading assistant that runs on an ordinary laptop and its webcam.
 
 ---
 
@@ -46,7 +44,7 @@ Core capabilities:
 - Extracts text intelligently using a **Vision Language Model (VLM)** — replacing conventional OCR for dramatically improved accuracy.
 - Converts the extracted text to natural speech via a **Text-to-Speech (TTS)** engine and plays it through the laptop's speakers or headphones.
 
-The entire pipeline runs with minimal user interaction, making the device highly accessible.
+The entire pipeline runs with minimal user interaction, making the application highly accessible.
 
 ---
 
@@ -64,22 +62,19 @@ The entire pipeline runs with minimal user interaction, making the device highly
 
 The end-to-end pipeline follows a linear flow from image capture to audio output:
 
-![System Architecture Diagram](Design/images/Architecture_diagram.png)
+```mermaid
+flowchart LR
+    A[Printed document] --> B[Laptop webcam]
+    B --> C[Document detection<br/>YOLO + OpenCV]
+    C --> D[Image processing<br/>OpenCV]
+    D --> E[VLM text extraction<br/>Qwen2.5-VL / Gemini]
+    E --> F[Text-to-speech]
+    F --> G[Laptop speakers /<br/>headphones]
+```
 
 ---
 
 ## Design Approach
-
-### Hardware Design
-
-> **Note:** The current software uses only the laptop's webcam. The ESP32-CAM wearable described below is the project's original hardware prototype and is not used by the code.
-
-The physical device is housed in a **custom 3D-printed module** designed specifically for this project. The enclosure was modelled in Fusion 360 and offers:
-
-- **Portability** — lightweight enough to be worn on the chest or clipped to clothing.
-- **Device protection** — fully encloses the ESP32-CAM and power electronics.
-- **User comfort** — ergonomic shape that sits flush against the body.
-- **Compactness & stability** — all components (camera, battery, converter, charging module) integrated into a single unit.
 
 ### Software Design
 
@@ -91,38 +86,6 @@ The physical device is housed in a **custom 3D-printed module** designed specifi
 | Text Extraction | VLM (Qwen2.5-VL via Ollama, or Gemini) | Context-aware, high-accuracy text recognition from the cropped image |
 | Text-to-Speech | macOS `say` / Windows SAPI / espeak-ng (`speech.py`) | Converts extracted text to natural speech |
 | Audio Output | Laptop speakers / headphones | Delivers speech to the user |
-
----
-
-## Hardware Design & 3D-Printed Module
-
-> Original wearable prototype. Not required to run the current laptop version.
-
-The Fusion 360 enclosure houses all electronics and is designed to be 3D-printed. Below are renders and photos of the module:
-
-### Fusion 360 Model Renders
-
-| View | Image |
-|---|---|
-| Assembled Device | <img src="Design/images/assembled.png" width="300"> |
-| Internal Circuit | <img src="Design/images/internal_circuit.png" width="300"> |
-| Circuit Inside the Case | <img src="Design/images/module_hosted.png" width="300"> |
-
-
-### Assembled Device
-
-Fully assembled and 3D printed device with ESP32-CAM mounted
-
-<img src="Design/images/final_module.jpeg" width="500"> 
-
-
-### Component Layout
-
-The 3D-printed module integrates:
-- **ESP32-CAM** — camera and Wi-Fi SoC
-- **3.7V LiPo 600mAh battery** — portable power supply
-- **MT3608 Boost Converter** — steps 3.7V up to the 5V required by the ESP32-CAM
-- **TP4056 Battery Charging Module** — USB-C charging for the LiPo cell
 
 ---
 
@@ -251,7 +214,7 @@ A window titled **Smart Reader** (or **Smart Reader - Qwen**) will display the l
 
 ### VLM vs. Traditional OCR (EasyOCR)
 
-The system was benchmarked against EasyOCR on blurred real-world captures taken with the ESP32-CAM:
+The system was benchmarked against EasyOCR on blurred real-world real-world camera captures:
 
 | Metric | EasyOCR | VLM (Qwen3-VI-8B) |
 |---|---|---|
@@ -282,11 +245,8 @@ Total end-to-end latency is approximately **~11.3 seconds** per document read. T
 ### 1. Vision Language Models Instead of Traditional OCR
 Rather than relying solely on rule-based OCR (e.g. Tesseract, EasyOCR), Helping Eyes employs a VLM (Qwen3-VI-8B) that brings contextual understanding to text recognition. This yields dramatically higher accuracy on blurred, low-contrast, and real-world camera images — as confirmed by the evaluation metrics above.
 
-### 2. Custom 3D-Printed Assistive Module
-A purpose-built enclosure was designed in Fusion 360 and 3D-printed to create a wearable, compact form factor. The housing integrates all electronics and can be worn on the chest, providing a true hands-free experience without any commercially available housing.
-
-### 3. Autonomous Document Reading Pipeline
-The system detects, enhances, extracts, and reads aloud with minimal user interaction. No button presses or menu navigation are required — the device identifies when a document is in view and begins reading automatically, making it genuinely accessible for users with no or limited vision.
+### 2. Autonomous Document Reading Pipeline
+The system detects, enhances, extracts, and reads aloud with minimal user interaction. No button presses or menu navigation are required — the application identifies when a document is in view and begins reading automatically, making it genuinely accessible for users with no or limited vision.
 
 ---
 
