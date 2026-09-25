@@ -33,7 +33,7 @@ speaker = Speaker()
 
 def speak(text):
     clean = text.replace("*", "").replace("#", "").replace("_", "")
-    print(f"🗣️ {clean[:120]}")
+    print(f"Assistant: {clean[:120]}")
     speaker.say(clean)
 
 # ================= TEXT UTILITIES =================

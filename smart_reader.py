@@ -52,12 +52,12 @@ def speak(text: str) -> None:
     clean = re.sub(r"[*#_`~]", "", text).strip()
     if not clean:
         return
-    print(f"🗣️ {clean}")
+    print(f"Assistant: {clean}")
     speaker.say(clean)
 
 def stop_speech() -> None:
     """Stop talking and stop any answer still being generated"""
-    print("🛑 Stopping speech")
+    print("Stopping speech")
     doc.cancel()
     speaker.stop()
 
@@ -120,16 +120,37 @@ def set_book_mode(on: bool) -> None:
     else:
         speak("Normal mode.")
 
-def load_page(text: str, page_no: int) -> None:
-    """A new book page was read: make it the current text and speak it"""
+def _speech_chunks(text: str, paragraphs, max_len: int = 600):
+    """
+    (start, chunk) pieces of the page for tracked speech: one per paragraph,
+    long paragraphs split at sentence ends. Each chunk is a separate `say`,
+    so the ~1 s start-up pause falls between paragraphs.
+    """
+    for a, b in paragraphs:
+        start = a
+        while start < b:
+            end = b
+            if end - start > max_len:
+                cut = max(text.rfind(". ", start, start + max_len),
+                          text.rfind("? ", start, start + max_len),
+                          text.rfind("! ", start, start + max_len))
+                end = cut + 1 if cut > start else start + max_len
+            yield start, text[start:end]
+            start = end
+
+def load_page(text: str, page_no: int, layout) -> None:
+    """A new book page was read: make it the current text and speak it,
+    tracking the spoken word so the screen can point at it"""
     global _pending_search, _last_answer
     stop_speech()
     _pending_search = ""
     doc.set_document(text)  # questions now refer to this page
-    logger.info(f"📖 Page {page_no}, {len(text)} characters:\n{text}")
+    logger.info(f"Page {page_no}, {len(text)} characters:\n{text}")
     _last_answer = text
     speak(f"Page {page_no}.")
-    speak(text)
+    print(f"Assistant: {text}")
+    for start, chunk in _speech_chunks(text, layout.paragraphs):
+        speaker.say(chunk, track_from=start)
 
 def speak_document() -> None:
     """Read everything Apple Vision captured, exactly as captured"""
@@ -146,7 +167,7 @@ def handle_request(text: str) -> None:
     lower = request.lower()
     if not request:
         return
-    print(f"🙋 {request}")
+    print(f"You: {request}")
 
     # Answer to "Should I look it up online?"
     pending, _pending_search = _pending_search, ""
@@ -228,7 +249,7 @@ def request_worker() -> None:
         try:
             handle_request(text)
         except Exception as e:
-            logger.error(f"❌ Request error: {e}")
+            logger.error(f"Request error: {e}")
 
 # ================= VOICE INPUT =================
 def voice_listener() -> None:
@@ -242,10 +263,10 @@ def voice_listener() -> None:
         with mic as source:
             recognizer.adjust_for_ambient_noise(source, duration=1)
 
-        print("🎤 Voice control active... ask a question after the text is captured")
+        print("Voice control active. Ask a question after the text is captured.")
 
     except Exception as e:
-        logger.error(f"❌ Voice listener initialization failed: {e}")
+        logger.error(f"Voice listener initialization failed: {e}")
         return
 
     while _running:
@@ -266,17 +287,17 @@ def voice_listener() -> None:
 
             try:
                 command = recognizer.recognize_google(audio)
-                print(f"🎤 Heard: {command}")
+                print(f"Heard: {command}")
                 _requests.put(command)
             except sr.UnknownValueError:
                 pass
             except sr.RequestError as e:
-                logger.warning(f"⚠️ Google API error: {e}")
+                logger.warning(f"Google API error: {e}")
 
         except sr.WaitTimeoutError:
             continue
         except Exception as e:
-            logger.error(f"❌ Voice error: {e}")
+            logger.error(f"Voice error: {e}")
             time.sleep(1)
 
 # ================= TYPED INPUT =================
@@ -284,7 +305,7 @@ def typed_listener() -> None:
     """Type a question in the terminal and press Enter (handy for testing)"""
     if not sys.stdin or not sys.stdin.isatty():
         return
-    print("⌨️  You can also type a question here and press Enter.")
+    print("You can also type a question here and press Enter.")
     for line in sys.stdin:
         if not _running:
             break
@@ -315,7 +336,7 @@ class BackgroundFrameReader(threading.Thread):
         try:
             self.cap = cv2.VideoCapture(self.camera_index)
             if not self.cap.isOpened():
-                logger.error(f"❌ Cannot open webcam {self.camera_index}. On macOS, allow Camera access for your terminal / VS Code.")
+                logger.error(f"Cannot open webcam {self.camera_index}. On macOS, allow Camera access for your terminal / VS Code.")
                 self.close()
                 return False
 
@@ -327,18 +348,18 @@ class BackgroundFrameReader(threading.Thread):
             ret, frame = self.cap.read()
             if ret and frame is not None and frame.size > 0:
                 h, w = frame.shape[:2]
-                logger.info(f"✅ Camera opened at {w}x{h}")
+                logger.info(f"Camera opened at {w}x{h}")
                 self.connected = True
                 self.consecutive_failures = 0
                 with self.buffer_lock:
                     self.buffer.append(frame)
                     self.frame_id += 1
                 return True
-            logger.warning("⚠️ Camera opened but no valid frame returned")
+            logger.warning("Camera opened but no valid frame returned")
             self.close()
             return False
         except Exception as e:
-            logger.error(f"❌ Camera error: {e}")
+            logger.error(f"Camera error: {e}")
             self.close()
             return False
 
@@ -360,17 +381,17 @@ class BackgroundFrameReader(threading.Thread):
                     self.consecutive_failures = 0
                 else:
                     self.consecutive_failures += 1
-                    logger.warning(f"⚠️ Camera read failure {self.consecutive_failures}/{self.max_failures}")
+                    logger.warning(f"Camera read failure {self.consecutive_failures}/{self.max_failures}")
 
                     if self.consecutive_failures >= self.max_failures:
-                        logger.info("🔄 Reopening camera...")
+                        logger.info("Reopening camera...")
                         self.close()
                         time.sleep(2)
                         if not self.connect():
                             time.sleep(2)
 
             except Exception as e:
-                logger.error(f"❌ Camera error: {e}")
+                logger.error(f"Camera error: {e}")
                 self.consecutive_failures += 1
                 time.sleep(1)
 
@@ -389,7 +410,7 @@ class BackgroundFrameReader(threading.Thread):
                 self.cap = None
             self.connected = False
         except Exception as e:
-            logger.error(f"⚠️ Error closing camera: {e}")
+            logger.error(f"Error closing camera: {e}")
 
     def stop(self):
         """Stop the background reader"""
@@ -403,7 +424,7 @@ def capture_document(frame: np.ndarray) -> bool:
     try:
         text = read_text(frame)
     except Exception as e:
-        logger.error(f"❌ Apple Vision error: {e}")
+        logger.error(f"Apple Vision error: {e}")
         speak("Could not read the text. Try again.")
         return False
 
@@ -414,7 +435,7 @@ def capture_document(frame: np.ndarray) -> bool:
     stop_speech()
     _pending_search = ""
     doc.set_document(text)
-    logger.info(f"📖 Captured {len(text)} characters:\n{text}")
+    logger.info(f"Captured {len(text)} characters:\n{text}")
     speak("Got it. What would you like to know? You can also say, read everything.")
     return True
 
@@ -427,7 +448,7 @@ def main():
     # camera-permission prompt from the main thread.
     frame_reader = BackgroundFrameReader(CAMERA_INDEX)
     if not frame_reader.connect():
-        logger.error("❌ Failed to open webcam")
+        logger.error("Failed to open webcam")
         return
     frame_reader.start()
 
@@ -520,7 +541,7 @@ def main():
         return True
 
     # ================= MAIN LOOP =================
-    logger.info("🎬 Starting main loop")
+    logger.info("Starting main loop")
     window = "Smart Reader"
     no_frame_counter = 0
     last_frame_id = 0
@@ -553,6 +574,25 @@ def main():
             cv2.putText(img, str(i), (badge[0] - 7 if i < 10 else badge[0] - 12, badge[1] + 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
+    def draw_reading_highlight(img):
+        """Highlight the line being spoken and box the exact word"""
+        pos = speaker.position
+        if pos is None or page_layout is None or page_detector.state == "TURNING":
+            return
+        span = page_layout.line_at(pos)
+        if span is None:
+            return
+        sx, sy = layout_scale
+        x1, y1, x2, y2 = span.box
+        overlay = img.copy()
+        cv2.rectangle(overlay, (int(x1 * sx) - 4, int(y1 * sy) - 3), (int(x2 * sx) + 4, int(y2 * sy) + 3),
+                      (0, 255, 255), -1)
+        cv2.addWeighted(overlay, 0.3, img, 0.7, 0, img)
+        word = page_layout.word_at(pos)
+        if word:
+            wx1, wy1, wx2, wy2 = (int(word[0] * sx), int(word[1] * sy), int(word[2] * sx), int(word[3] * sy))
+            cv2.rectangle(img, (wx1 - 3, wy1 - 3), (wx2 + 3, wy2 + 3), (0, 120, 255), 2)
+
     def draw_book_status(img, note=""):
         cv2.rectangle(img, (0, DISPLAY_H - 40), (DISPLAY_W, DISPLAY_H), (40, 40, 40), -1)
         status = (f"BOOK MODE   Page {page_no}   {note or page_detector.state}   "
@@ -567,7 +607,7 @@ def main():
                 if frame is None:
                     no_frame_counter += 1
                     if no_frame_counter > 30:
-                        logger.warning("⚠️ No frames for 1 second, waiting for camera...")
+                        logger.warning("No frames for 1 second, waiting for camera...")
                         time.sleep(1)
                         no_frame_counter = 0
                     else:
@@ -608,12 +648,12 @@ def main():
                         try:
                             text, page_layout = read_page(frame)
                         except Exception as e:
-                            logger.error(f"❌ Page reading error: {e}")
+                            logger.error(f"Page reading error: {e}")
                             text, page_layout = "", None
                         layout_scale = (DISPLAY_W / frame.shape[1], DISPLAY_H / frame.shape[0])
                         if text.strip():
                             page_no += 1
-                            load_page(text, page_no)
+                            load_page(text, page_no, page_layout)
                             turn_prompted = False
                         else:
                             speak("I can't see any text on this page.")
@@ -622,6 +662,7 @@ def main():
                         turn_prompted = True
 
                     draw_layout(display)
+                    draw_reading_highlight(display)
                     draw_book_status(display)
                     cv2.imshow(window, display)
                     if not handle_key():
@@ -654,7 +695,7 @@ def main():
                     try:
                         box, lines = find_text_region(small, MIN_TEXT_CHARS)
                     except Exception as e:
-                        logger.error(f"❌ Detection error: {e}")
+                        logger.error(f"Detection error: {e}")
                         box, lines = None, []
                     if box is not None:
                         last_text_seen = time.time()
@@ -662,7 +703,7 @@ def main():
                 # Text gone for a moment -> ready for the next item
                 if not armed and time.time() - last_text_seen > REARM_AFTER:
                     armed = True
-                    logger.info("🔓 Ready for a new capture")
+                    logger.info("Ready for a new capture")
 
                 if box is not None:
                     for line in lines:
@@ -708,15 +749,15 @@ def main():
                     break
 
             except KeyboardInterrupt:
-                logger.info("⏹️ Keyboard interrupt")
+                logger.info("Keyboard interrupt")
                 break
             except Exception as e:
-                logger.error(f"❌ Main loop error: {e}")
+                logger.error(f"Main loop error: {e}")
                 time.sleep(0.5)
                 continue
 
     finally:
-        logger.info("🔴 Shutting down...")
+        logger.info("Shutting down...")
         _running = False
         doc.cancel()
         speaker.shutdown()
@@ -726,7 +767,7 @@ def main():
             cv2.waitKey(1)  # lets macOS actually close the window
         except Exception:
             pass
-        logger.info("✅ Cleanup complete")
+        logger.info("Cleanup complete")
 
 if __name__ == "__main__":
     main()

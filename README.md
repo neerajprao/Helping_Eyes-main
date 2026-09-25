@@ -24,34 +24,35 @@
 
 ## Problem Statement
 
-Visually impaired individuals face significant barriers when accessing printed materials such as books, documents, and signage. Current assistive solutions suffer from several limitations:
+Visually impaired individuals face significant barriers when accessing printed materials such as books, documents, medicine labels and signage. Existing assistive solutions have several limitations:
 
-- **Cost:** Most commercially available reading aids are expensive and out of reach for many users.
-- **Extra hardware:** Existing solutions need dedicated devices instead of equipment people already own.
-- **Low-light performance:** Real-time document reading in poor lighting conditions remains a challenge for traditional OCR-based systems.
-- **Accuracy:** Conventional OCR pipelines struggle with blurred images, complex backgrounds, and varied fonts.
+- **Cost:** most commercially available reading aids are expensive.
+- **Dedicated hardware:** they require special-purpose devices rather than equipment people already own.
+- **Low-light performance:** real-time reading in poor lighting remains difficult for traditional OCR systems.
+- **Accuracy:** conventional OCR pipelines struggle with blur, complex backgrounds and varied fonts.
+- **Information overload:** reading an entire label aloud forces the user to listen to everything to find the one detail they need.
 
-Helping Eyes addresses these gaps with an affordable reading assistant that runs on an ordinary Mac and a webcam, and answers the user's questions about what it sees.
+Helping Eyes addresses these gaps with an affordable reading assistant that runs on an ordinary Mac with a webcam and answers the user's questions about what the camera sees.
 
 ---
 
 ## Introduction
 
-**Helping Eyes** is an assistive reading application for visually impaired users. It runs on a Mac with a USB or built-in webcam. Instead of simply reading everything aloud, it lets the user **talk about what the camera saw**.
+**Helping Eyes** is an assistive reading application for visually impaired users. It runs on a Mac with a USB or built-in webcam. Rather than reading everything aloud, it lets the user ask about the captured text and returns only the information requested.
 
 Core capabilities:
 
-- Finds text live on anything — pages, books, medicine packs, labels, signs, screens — using **Apple Vision**.
-- Guides the user by voice ("Move closer", "Move left") until the text is in view, then captures it.
-- Lets the user ask by voice (or by typing):
-  - **"Read everything"** — reads the full captured text, exactly as Apple Vision read it.
-  - **"Read only the dosage"** — reads just the requested parts.
-  - **"When does it expire?"**, **"Is this safe for children?"** — answers questions about the text.
-- Answers come from a local **Qwen 2.5 7B Instruct** model (via Ollama) and are spoken aloud, sentence by sentence.
-- When the text doesn't have the answer, it offers to **look it up online** — and only searches if the user says yes.
-- **Book mode** reads a book page by page, hands-free: it notices each page turn, splits two-page spreads and reads columns and paragraphs in the right order — using the project's own OpenCV pipeline.
+- **Live text detection** on any object — pages, books, medicine packs, labels, signs and screens — using Apple Vision.
+- **Spoken guidance** ("Move closer", "Move left") until the text is in view, followed by automatic capture.
+- **Spoken or typed requests** about the captured text:
+  - *"Read everything"* reads the full captured text exactly as recognised.
+  - *"Read only the dosage"* reads just the requested part.
+  - *"When does it expire?"* or *"Is this safe for children?"* is answered from the text.
+- **Local language model:** answers come from Qwen 2.5 7B Instruct running in Ollama and are spoken sentence by sentence as they are generated.
+- **Optional web lookup:** when the text does not contain the answer, the application offers to search online and does so only with the user's consent.
+- **Book reading mode:** a custom OpenCV pipeline detects page turns, separates two-page spreads, orders columns and paragraphs, and highlights the exact word being read on screen.
 
-Everything except voice recognition runs on the Mac itself.
+Text recognition, layout analysis and question answering run on the device. Speech recognition and the optional web lookup use online services.
 
 ---
 
@@ -59,9 +60,10 @@ Everything except voice recognition runs on the Mac itself.
 
 - Detect text automatically from a live camera feed, on any object.
 - Extract text accurately and quickly, on-device.
-- Let the user ask for exactly what they need instead of listening to everything.
+- Let the user request exactly the information they need instead of listening to everything.
 - Answer questions only from the captured text, without inventing details.
-- Run the complete system on an ordinary laptop, with no extra hardware.
+- Read books page by page without manual interaction.
+- Run the complete system on an ordinary laptop, with no additional hardware.
 
 ---
 
@@ -70,17 +72,17 @@ Everything except voice recognition runs on the Mac itself.
 ```mermaid
 flowchart LR
     A[Text in front<br/>of the camera] --> B[Webcam]
-    B --> C[Find text live<br/>Apple Vision, fast]
-    C --> D[Voice guidance<br/>move closer / hold still]
-    D --> E[Capture<br/>Apple Vision, accurate]
+    B --> C[Live text detection<br/>Apple Vision, fast mode]
+    C --> D[Spoken guidance<br/>position and hold still]
+    D --> E[Capture<br/>Apple Vision, accurate mode]
     E --> F[(Captured text)]
-    U[User speaks<br/>or types] --> R{What was asked?}
+    U[User request<br/>spoken or typed] --> R{Request type}
     F --> R
     R -- read everything --> S[Speak the full text]
     R -- read a part /<br/>ask a question --> Q[Qwen 2.5 7B Instruct<br/>via Ollama]
     Q --> T[Speak the answer<br/>sentence by sentence]
-    Q -- not in the text --> O{Should I look<br/>it up online?}
-    O -- yes --> W[DuckDuckGo search] --> Q2[Qwen answers from<br/>web results] --> T
+    Q -- answer not in the text --> O{Offer web lookup}
+    O -- user agrees --> W[DuckDuckGo search] --> Q2[Qwen answers from<br/>search results] --> T
 ```
 
 ---
@@ -91,15 +93,16 @@ flowchart LR
 
 | Stage | Component | Description |
 |---|---|---|
-| Image Acquisition | Webcam (OpenCV) | Captures continuous 720p frames |
-| Text Detection | Apple Vision, fast mode (`text_vision.py`) | Finds every line of text, 10 times a second |
-| User Guidance | `smart_reader.py` | Spoken hints until the text is readable and in view, then a short hold-still countdown |
-| Capture | Apple Vision, accurate mode | Reads all text once and keeps it; nothing is read aloud yet |
-| Voice Input | SpeechRecognition (Google) | Turns the user's spoken request into text; the terminal also accepts typed requests |
-| Understanding | Qwen 2.5 7B Instruct via Ollama (`doc_assistant.py`) | Reads requested parts or answers questions, using only the captured text |
-| Expiry Checks | `doc_assistant.py` | Expiry dates are compared with today's date in code, not by the model |
-| Web Lookup | DuckDuckGo (`ddgs`) + Qwen | Only after the user agrees; answers start with "According to the web" |
-| Text-to-Speech | macOS `say` (`speech.py`) | Speaks each sentence as soon as the model produces it |
+| Image acquisition | Webcam (OpenCV) | Captures continuous 720p frames on a background thread |
+| Text detection | Apple Vision, fast mode (`text_vision.py`) | Locates every line of text ten times per second |
+| User guidance | `smart_reader.py` | Spoken positioning hints, then a short hold-still countdown |
+| Capture | Apple Vision, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
+| Voice input | SpeechRecognition (Google) | Converts spoken requests to text; the terminal also accepts typed requests |
+| Understanding | Qwen 2.5 7B Instruct via Ollama (`doc_assistant.py`) | Reads requested parts or answers questions using only the captured text |
+| Expiry checks | `doc_assistant.py` | Expiry dates are compared with the current date in code, not by the model |
+| Web lookup | DuckDuckGo (`ddgs`) and Qwen | Used only with the user's consent; answers are prefixed with "According to the web" |
+| Book reading | OpenCV pipeline (`book_mode.py`) | Page-turn detection, spread splitting, layout analysis and reading order |
+| Text-to-speech | macOS `say` (`speech.py`) | Queued, interruptible speech with word-level progress tracking |
 
 ---
 
@@ -107,25 +110,25 @@ flowchart LR
 
 ```
 Helping_Eyes-main/
-├── smart_reader.py     # Main app: camera, guidance, capture, voice/typed requests
-├── doc_assistant.py    # Qwen 2.5 7B (Ollama): answers questions, reads parts, expiry checks, web lookup
-├── book_mode.py        # Own OpenCV: page-turn detection, spread splitting, column/paragraph layout
-├── text_vision.py      # Apple Vision: find text live (fast) and read it (accurate)
-├── speech.py           # Queued, interruptible text-to-speech (macOS `say`)
-├── assitant.py         # Alternative reader: Apple Vision finds text, Gemini reads it all aloud
+├── smart_reader.py     # Main application: camera, guidance, capture, requests, book mode
+├── doc_assistant.py    # Question answering with Qwen 2.5 7B (Ollama), expiry checks, web lookup
+├── book_mode.py        # OpenCV pipeline: page-turn detection, spread splitting, layout analysis
+├── text_vision.py      # Apple Vision wrapper: live text detection and accurate recognition
+├── speech.py           # Queued, interruptible text-to-speech with spoken-word tracking
+├── assitant.py         # Alternative reader: Apple Vision detection, Gemini reads the full text
 ├── requirment.txt      # Python dependencies
-├── .env.example        # Settings template (copy to .env)
-├── docs/               # Screenshots for this README
+├── .env.example        # Configuration template (copy to .env)
+├── docs/               # Screenshots used in this README
 └── README.md
 ```
 
-| File | Key pieces |
+| File | Main components |
 |---|---|
-| `smart_reader.py` | `handle_request()` routes each request (app command, read everything, or the model) · `capture_document()` stores the captured text · `voice_listener()` / `typed_listener()` take requests · `BackgroundFrameReader` keeps the newest camera frame |
-| `doc_assistant.py` | `DocAssistant.set_document()` / `ask()` (streams the answer sentence by sentence) · `ask_web()` searches and answers from the results · `wants_read_all()` spots "read it all" requests · `expiry_checks()` works out whether expiry dates have passed · `web_lookup_allowed()` blocks lookups for expiry, batch and price |
-| `book_mode.py` | `PageTurnDetector` (frame differencing state machine) · `split_spread()` (gutter detection) · `find_blocks()` (columns + paragraphs) · `order_lines()` · `read_page()` |
-| `text_vision.py` | `find_text_region()` for live detection · `read_text()` / `recognize_text()` for the full capture |
-| `speech.py` | `Speaker.say()` / `stop()` · `spoke_since()` stops the microphone from hearing the app's own voice |
+| `smart_reader.py` | `handle_request()` routes each request to an application command, a full read-out or the model · `capture_document()` stores the captured text · `voice_listener()` and `typed_listener()` accept requests · `BackgroundFrameReader` keeps the latest camera frame |
+| `doc_assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
+| `book_mode.py` | `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `find_blocks()` (columns and paragraphs) · `order_lines()` · `read_page()` |
+| `text_vision.py` | `find_text_region()` for live detection · `read_text()` and `recognize_text()` for full recognition, including per-word boxes |
+| `speech.py` | `Speaker.say()` and `stop()` · `spoke_since()` prevents the microphone from capturing the application's own voice · `say(text, track_from=...)` and `position` report the word currently being spoken |
 
 ---
 
@@ -136,8 +139,8 @@ Helping_Eyes-main/
 | Component | Specification |
 |---|---|
 | Computer | Mac running macOS 13 or later; Apple Silicon with 16 GB RAM recommended for the 7B model |
-| Camera | USB webcam or the built-in camera (set `CAMERA_INDEX`) |
-| Microphone | Built-in mic, for spoken requests |
+| Camera | USB webcam or the built-in camera (selected with `CAMERA_INDEX`) |
+| Microphone | Built-in microphone, for spoken requests |
 | Audio | Built-in speakers or headphones |
 
 ### Software
@@ -145,14 +148,14 @@ Helping_Eyes-main/
 | Component | Purpose |
 |---|---|
 | Apple Vision (`pyobjc-framework-Vision`) | On-device text detection and recognition |
-| Ollama + `qwen2.5:7b-instruct` | Local language model that answers questions about the text |
-| `ddgs` (DuckDuckGo) | Web search, only when the user agrees; no account or API key |
-| OpenCV | Camera capture and on-screen overlays |
-| SpeechRecognition + PyAudio | Spoken requests |
-| `speech.py` | Text-to-speech using the macOS `say` command |
+| Ollama with `qwen2.5:7b-instruct` | Local language model for question answering |
+| `ddgs` (DuckDuckGo) | Web search, only with the user's consent; no account or API key required |
+| OpenCV and NumPy | Camera capture, book-mode image analysis and on-screen overlays |
+| SpeechRecognition and PyAudio | Spoken requests |
+| macOS `say` | Text-to-speech |
 | Google Gemini API | Cloud text reading in the separate `assitant.py` |
 
-> **Note:** Apple Vision is part of macOS, so the app runs on Macs only.
+> **Note:** Apple Vision is part of macOS, so the application runs on Macs only.
 
 ---
 
@@ -161,7 +164,7 @@ Helping_Eyes-main/
 Copy `.env.example` to `.env` in the project root and fill it in:
 
 ```env
-# 0 = first camera macOS lists (a plugged-in USB camera usually comes first)
+# 0 = first camera macOS lists (a connected USB camera is usually listed first)
 CAMERA_INDEX=0
 
 # Local language model served by Ollama
@@ -172,18 +175,18 @@ LLM_MODEL=qwen2.5:7b-instruct
 API_KEY=<YOUR_GOOGLE_GENERATIVE_AI_KEY>
 ```
 
-Other optional settings: `TEXT_LANGUAGES` (e.g. `en-US,hi-IN`; unset = auto-detect), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute), `GEMINI_MODEL`.
+Optional settings: `TEXT_LANGUAGES` (for example `en-US,hi-IN`; automatic detection when unset), `SPEECH_VOICE` (see `say -v '?'`), `SPEECH_RATE` (words per minute) and `GEMINI_MODEL`.
 
 ---
 
 ## Installation
 
 ```bash
-# 1. System dependencies (PortAudio is needed to build PyAudio for the microphone)
+# 1. System dependencies (PortAudio is required to build PyAudio)
 brew install python@3.13 portaudio
 brew install --cask ollama            # or download from https://ollama.com/download
 
-# 2. The language model (about 4.7 GB); keep the Ollama app open
+# 2. Language model (approximately 4.7 GB); keep the Ollama application running
 ollama pull qwen2.5:7b-instruct
 
 # 3. Virtual environment (Python 3.11–3.13 recommended)
@@ -195,7 +198,8 @@ CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" \
   python -m pip install -r requirment.txt
 ```
 
-**macOS permissions.** The first time you run a script, macOS will ask for these. Grant them to the app you run it from (Terminal, iTerm or VS Code):
+**macOS permissions.** On first run, macOS requests the following permissions for the application the script is launched from (Terminal, iTerm or VS Code):
+
 - **Camera** (System Settings → Privacy & Security → Camera): required for the webcam.
 - **Microphone** (System Settings → Privacy & Security → Microphone): required for spoken requests.
 
@@ -203,17 +207,19 @@ CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" \
 
 ## Running the System
 
-### Option A — Smart Reader (ask about what the camera sees, recommended)
+### Option A — Smart Reader (recommended)
 
 ```bash
 python smart_reader.py
 ```
 
-1. Hold the item up to the camera and follow the spoken hints.
-2. When you hear *"Got it"*, ask your question out loud — or type it in the terminal and press Enter.
-3. To switch to a new item, move the current one out of view for a moment (or say *"next"*), then show the new one.
+1. Hold the item in front of the camera and follow the spoken guidance.
+2. After the confirmation *"Got it"*, ask a question aloud or type it in the terminal and press Enter.
+3. To capture a new item, move the current one out of view briefly (or say *"next"*), then present the new item.
 
-### Option B — Gemini Reader (reads everything aloud; cloud, needs an API key)
+### Option B — Gemini Reader
+
+Reads all captured text aloud using the Gemini cloud API. Requires an internet connection and an API key.
 
 ```bash
 python assitant.py
@@ -223,24 +229,24 @@ python assitant.py
 
 ## Usage & Controls
 
-**Things you can say (or type)**
+### Spoken or typed requests
 
-| Say | What happens |
+| Request | Result |
 |---|---|
-| "Read everything", "read it", "what does it say" | Reads the full captured text, exactly as captured |
-| "Read only the directions", "read the ingredients" | Reads just those parts |
-| Any question: "When does it expire?", "How much does it cost?", "Can children take this?" | Qwen answers from the captured text |
-| Follow-ups: "And how often?" | Qwen remembers the last few questions about the same item |
-| "Yes" / "no" after *"Should I look it up online?"* | Searches the web, or doesn't |
-| "Look it up", "search online" | Searches the web for your last question |
-| "Look up tartrazine allergy", "search the web for …" | Searches the web for exactly that |
+| "Read everything", "read it", "what does it say" | Reads the full captured text exactly as recognised |
+| "Read only the directions", "read the ingredients" | Reads only the requested parts |
+| Questions such as "When does it expire?", "How much does it cost?", "Can children take this?" | Answered from the captured text |
+| Follow-up questions such as "And how often?" | The last few exchanges about the same item are retained |
+| "Yes" or "no" after *"Should I look it up online?"* | Performs or declines the web lookup |
+| "Look it up", "search online" | Searches the web for the previous question |
+| "Look up tartrazine allergy", "search the web for ..." | Searches the web for the given phrase |
 | "Repeat" | Repeats the last answer |
 | "Stop" | Stops speaking |
-| "Next", "new page", "scan again" | Get ready to capture a new item |
-| "Book mode" / "read my book" | Switch to book mode (see below) |
-| "Normal mode" / "stop book mode" | Back to capturing single items |
+| "Next", "new page", "scan again" | Prepares to capture a new item |
+| "Book mode", "read my book" | Switches to book reading mode |
+| "Normal mode", "stop book mode" | Returns to single-item capture |
 
-**Keys** (click the video window first)
+### Keyboard (the video window must have focus)
 
 | Key | Action |
 |---|---|
@@ -248,65 +254,83 @@ python assitant.py
 | `s` | Stop speaking |
 | `r` | Capture a new item |
 | `a` | Read the full captured text |
-| `b` | Book mode on / off |
+| `b` | Toggle book mode |
 
-The microphone only listens while the app is quiet (so it doesn't hear itself); press `s` to interrupt a long answer.
+The microphone listens only while the application is silent, so that it does not capture its own voice. Use `s` to interrupt a long answer.
 
 **Screen states:** `SHOW TEXT HERE` → `ADJUST POSITION` → `HOLD` → `CAPTURED - ASK ME` → `THINKING...` → `SPEAKING...`
 
-**Gemini reader (`assitant.py`):** no questions or voice commands. It sends the captured frame to Gemini and reads all the text aloud. The only key is `q` (quit).
+**Gemini reader (`assitant.py`):** does not support questions or voice commands. It sends the captured frame to Gemini and reads all text aloud. The only control is `q` (quit).
 
 ---
 
 ## Computer Vision: Book Reading Mode
 
-Book mode reads a book page by page without any buttons: open the book in front of the camera, listen, turn the page, listen. Apple Vision still recognises the letters of each line; **everything else — when to read, where the pages are and in what order to read — is this project's own OpenCV pipeline** in [`book_mode.py`](book_mode.py).
+Book mode reads a book page by page without manual interaction: the user opens the book in front of the camera, listens, and turns the page. Apple Vision recognises the characters of each line; **the decisions of when to read, where each page lies and in what order to read are made by the project's own OpenCV pipeline** in [`book_mode.py`](book_mode.py).
 
-<img src="docs/book_mode_overlay.jpg" width="720" alt="Book mode overlay on a synthetic two-page spread: yellow gutter line, blue column bounds, green paragraph boxes numbered 1 to 5 in reading order">
+<img src="docs/book_mode_overlay.jpg" width="720" alt="Book mode overlay on a synthetic two-page spread: spine line in yellow, column bounds in blue, paragraph boxes in green numbered 1 to 5 in reading order">
 
-*Book mode on a synthetic test spread: the gutter (yellow), text columns (blue) and paragraphs (green), numbered in reading order.*
+*Book mode on a synthetic two-page spread: the detected spine (yellow), text columns (blue) and paragraphs (green), numbered in reading order.*
 
 ```mermaid
 flowchart LR
-    F[Camera frames] --> M[Frame differencing<br/>motion vs. learned noise floor]
+    F[Camera frames] --> M[Frame differencing<br/>motion relative to learned noise floor]
     M --> S{State machine<br/>TURNING → SETTLING → STEADY}
-    S -- steady 0.8 s --> G{Same page as<br/>last time?<br/>layout fingerprint}
-    G -- new page --> SP[Gutter detection<br/>split the spread]
-    SP --> L[Adaptive threshold<br/>remove ruled lines]
-    L --> C[Vertical projection<br/>→ columns]
-    C --> P[Horizontal projection<br/>→ paragraphs]
-    P --> O[Order Apple Vision's lines<br/>by column, paragraph, y]
-    O --> R[Speak page · keep for questions]
+    S -- steady for 0.8 s --> G{New page?<br/>layout fingerprint}
+    G -- new page --> SP[Spine detection<br/>split the spread]
+    SP --> L[Adaptive threshold<br/>ruled-line removal]
+    L --> C[Vertical projection<br/>columns]
+    C --> P[Horizontal projection<br/>paragraphs]
+    P --> O[Order recognised lines<br/>by column, paragraph, position]
+    O --> R[Speak the page<br/>and retain it for questions]
 ```
 
-### 1. Page-turn detection — frame differencing + state machine
-- Each frame is shrunk to 320×180, converted to grayscale and blurred; the **mean absolute difference** from the previous frame measures motion. A **median over the last 5 frames** stops one noisy frame from resetting anything.
-- The detector **learns the camera's noise floor** (a running average of motion while nothing moves) and sets its "moving" / "still" thresholds relative to it, so it works across cameras and lighting.
-- A small state machine — `TURNING` → `SETTLING` → `STEADY` — reads the page once it has been still for 0.8 s.
-- **Same-page check:** a 80×45 binary *layout fingerprint* (adaptive threshold + horizontal dilation, so each text line becomes a band) is compared with the last page read. A hand passing over the page doesn't cause a re-read; a new page does.
+### 1. Page-turn detection: frame differencing and a state machine
 
-### 2. Two-page spread splitting — gutter detection
-- The **column-wise mean brightness** across the middle of the image is smoothed; the book's spine casts a shadow that shows up as a **dark valley** in this profile.
-- If the darkest point in the central 35–65% is at least 12% darker than both pages, the spread is split there and each page is processed separately. The white gap between two text columns is *brighter* than text, so it is never mistaken for a gutter.
+- Each frame is reduced to 320×180, converted to grayscale and blurred. The **mean absolute difference** from the previous frame measures motion, and a **median over the last five frames** suppresses isolated noisy frames.
+- The detector **learns the camera's noise floor** (a running average of motion while the scene is still) and sets its movement and stillness thresholds relative to it, making it robust across cameras and lighting conditions.
+- A state machine (`TURNING` → `SETTLING` → `STEADY`) triggers a read once the page has been still for 0.8 s.
+- **Same-page check:** an 80×45 binary *layout fingerprint* (adaptive threshold with horizontal dilation, so that each text line forms a band) is compared with the last page read. A hand passing over the page does not trigger a re-read; a new page does.
 
-### 3. Layout analysis — columns and paragraphs
-- **Adaptive Gaussian threshold** turns the page into "ink" pixels; a small opening removes speckles.
-- **Ruled-line removal:** a morphological opening with long thin kernels keeps only straight lines (page edges, rules, table borders), which are then subtracted — otherwise they fill in the gaps between columns.
-- **Columns:** a **vertical projection profile** (ink per x position). Gaps between columns are wide runs of empty x; gaps between words never line up from line to line, so they don't.
-- **Paragraphs:** inside each column a **horizontal projection profile** finds text lines; a gap clearly taller than the typical line gap starts a new paragraph.
-- **Reading order:** each line Apple Vision recognised is assigned to the block containing its centre; blocks are read column by column, paragraph by paragraph, and words hyphenated across lines are re-joined.
+### 2. Two-page spread splitting: spine detection
 
-### Results (synthetic test pages)
+- **Book localisation:** an Otsu threshold on the blurred image separates the paper from the background; a morphological closing fills in the text, and the union of large paper regions gives the book's outline. Only regions clearly wider than they are tall are treated as spreads; single pages are not split.
+- **Shadow cue:** a partially opened book casts a shadow along the spine, visible as a **dark valley** in the column-wise mean brightness. When the valley is at least 12% darker than both pages, the spread is split there.
+- **Text-free strip cue:** a fully opened book casts little or no shadow, and the spine region is often the brightest part of the image. Because text never crosses the spine, the two inner margins form the **smoothest vertical strip** of the book. Texture is measured as the **local standard deviation of brightness** per column (text remains textured even when slightly blurred, blank paper does not), and the smooth strip nearest the centre of the book is selected.
+
+### 3. Layout analysis: columns and paragraphs
+
+- An **adaptive Gaussian threshold** converts the page to ink pixels; a small morphological opening removes speckle noise.
+- **Ruled-line removal:** morphological openings with long, thin kernels isolate straight lines (page edges, rules, table borders), which are subtracted so that they do not bridge the gaps between columns.
+- **Columns:** a **vertical projection profile** (ink per x position) reveals column gaps as wide runs of empty columns. Gaps between words do not align from line to line and therefore do not appear as gaps.
+- **Paragraphs:** within each column, a **horizontal projection profile** identifies text lines; a gap substantially taller than the typical line spacing starts a new paragraph.
+- **Reading order:** each line recognised by Apple Vision is assigned to the block containing its centre. Blocks are read column by column and paragraph by paragraph, and words hyphenated across lines are rejoined.
+
+### 4. Reading position highlight
+
+While a page is read aloud, the display follows the speech word by word: the **line being spoken is highlighted** and the **word being spoken is outlined**.
+
+<img src="docs/book_mode_highlight.jpg" width="720" alt="Book mode reading highlight: the line being spoken highlighted in yellow and the current word outlined in orange">
+
+- **Spoken position:** macOS `say --interactive` redraws the text with the current word emphasised. The application runs `say` on a pseudo-terminal, parses these redraws and converts them to a character position in the page text (`Speaker.position` in `speech.py`). The page is spoken one paragraph at a time, so the start-up delay of each `say` process coincides with the natural pause between paragraphs.
+- **On-page location:** during recognition, Apple Vision provides a bounding box for every word (`boundingBoxForRange`), and `read_page()` records which characters of the page text belong to which printed line and word (`PageLayout.lines`, `line_at()`, `word_at()`).
+- Combining the two yields the exact on-screen location of the word being spoken.
+
+### Evaluation
 
 | Test | Result |
 |---|---|
-| Gutter position on a two-page spread | exact (x = 960 of 1920) |
-| Columns / paragraphs found | 1 column + 3 paragraphs (left page), 2 columns + 2 + 2 paragraphs (right page) — all correct |
-| Page-turn sequences (still page → hand passes over it → page turned → new page), 10 random noise seeds | 10/10 correct: first page read after ~0.9 s of stillness, no re-read when a hand passes over, new page read ~1 s after the turn |
-| Reading-order score, full-width two-page spread | 1.00 with book mode, 0.98 with Apple Vision alone |
-| Time per frame / per page | page-turn detector 0.2 ms per frame; gutter + layout analysis 8 ms; whole page including Apple Vision ~180 ms |
+| Spine detection, spread with a shadow (synthetic) | Exact (x = 960 of 1920; 640 of 1280) |
+| Spine detection, fully opened book captured with the USB camera (no shadow) | x = 645, within the blank strip between the pages (approximately 570–665) |
+| Spine detection, flat spreads without a shadow (synthetic) | Within the blank strip between the pages |
+| Single portrait page | Correctly not split |
+| Column and paragraph detection (synthetic spread) | Left page: 1 column, 3 paragraphs; right page: 2 columns, 2 + 2 paragraphs; all correct |
+| Page-turn sequences (still page, hand passing over, page turned, new page), 10 random noise seeds | 10/10 correct: first page read after about 0.9 s of stillness, no re-read when a hand passes over, new page read about 1 s after the turn |
+| Reading-order score, full-width two-page spread | 1.00 with book mode; 0.98 with Apple Vision alone |
+| Words mapped to their on-screen box (two-page spread) | 169 / 169 |
+| Processing time | Page-turn detector 0.2 ms per frame; spine and layout analysis 8 ms; full page including recognition and word boxes about 300 ms |
 
-Apple Vision's own line order is already good on clean pages; book mode's main gains are hands-free page turning, correct handling of two-page spreads, and paragraph structure (natural pauses between paragraphs).
+Apple Vision's native line order is already reliable on clean pages. The principal benefits of book mode are hands-free page turning, correct handling of two-page spreads, paragraph structure and the reading position highlight.
 
 ---
 
@@ -316,39 +340,42 @@ Measured on an Apple Silicon Mac:
 
 | Operation | Time |
 |---|---|
-| Find text (Apple Vision, fast mode) | ~10–40 ms per frame |
-| Capture a full label (Apple Vision, accurate mode) | ~0.1–0.2 s |
-| First spoken sentence of an answer (Qwen 2.5 7B) | ~0.5–1.5 s |
-| "Read everything" | instant (no model involved) |
-| Web lookup (search + answer) | ~5–9 s |
-| Book mode: page turn → start reading | ~1 s (0.8 s settle + ~0.2 s to read the page) |
+| Live text detection (Apple Vision, fast mode) | 10–40 ms per frame |
+| Full capture of a label (Apple Vision, accurate mode) | 0.1–0.2 s |
+| First spoken sentence of an answer (Qwen 2.5 7B) | 0.5–1.5 s |
+| Full read-out request | Immediate (no model involved) |
+| Web lookup (search and answer) | 5–9 s |
+| Book mode, page turn to start of reading | 1–2 s (0.8 s settling, about 0.3 s recognition, about 1 s speech start-up) |
 
 ---
 
 ## Innovations
 
-### 1. Ask Instead of Listening to Everything
-A medicine box can hold hundreds of words. Instead of reading all of it aloud, the user asks for exactly what they need — the dosage, the expiry date, a warning — and gets a short spoken answer.
+### 1. Question-driven reading
+A medicine package can contain hundreds of words. Instead of reading everything aloud, the user asks for the specific information needed — the dosage, the expiry date or a warning — and receives a short spoken answer.
 
-### 2. Text Detection Instead of Object Detection
-Helping Eyes looks for text itself, not for specific objects, so anything with readable text — a page, a medicine strip, a food packet, a sign or a screen — can be captured.
+### 2. Text detection instead of object detection
+Helping Eyes detects text directly rather than specific object categories, so any item with readable text — a page, a medicine strip, a food package, a sign or a screen — can be captured.
 
-### 3. Grounded, Private Answers
-Apple Vision reads the text and a local Qwen model answers questions on the Mac itself. The model is instructed to use only the captured text and to say when the answer isn't there; expiry dates are checked in code rather than by the model.
+### 3. Grounded, on-device answers
+Text recognition and question answering run locally. The model is instructed to use only the captured text and to state when the answer is not present, and expiry dates are evaluated in code rather than by the model.
+
+### 4. Hands-free book reading
+A custom OpenCV pipeline detects page turns, splits two-page spreads, orders columns and paragraphs, and highlights the word being read, allowing a book to be read page by page without any manual interaction.
 
 ---
 
 ## Known Limitations
 
-- **Mac only:** Apple Vision is part of macOS.
-- **Voice recognition needs internet:** spoken requests go to Google's speech service. Typed requests work offline.
-- **No voice interruption:** the microphone is off while the app is speaking, so it doesn't hear itself. Press `s` to stop a long answer.
-- **Everything in view is captured:** background text (keyboard keys, a screen) can end up in the capture. Hold the item close so it fills the view.
-- **Moving to a new item:** a new capture happens only after the text leaves the view for a moment, or after `r` / "next".
-- **OCR mistakes:** small, curved, shiny or blurry print can be misread, and the model's answer can only be as good as the captured text.
-- **Web lookups:** only the search query (your question plus the product name) leaves the Mac; the captured text is not sent. Web answers are only as good as the search results, and lookups are never offered for expiry, batch or price, which only the item itself can tell you.
-- **Book mode** was tested on synthetic pages; real books add page curvature, uneven lighting and thumbs over the text. Very curved pages near the spine and pages with pictures in the middle can confuse the gutter and column detection.
-- **Model answers can be wrong:** Qwen is told to use only the captured text, but a 7B model can still misread or mix up details. Check anything medically important with a pharmacist or doctor.
+- **Platform:** Apple Vision is part of macOS; the application runs on Macs only.
+- **Speech recognition requires internet access:** spoken requests are processed by Google's speech service. Typed requests work offline.
+- **No voice interruption:** the microphone is inactive while the application speaks. Use `s` to stop a long answer.
+- **Background text:** any text in view (keyboard keys, a screen) may be included in the capture. Holding the item close to the camera reduces this.
+- **New captures:** a new item is captured only after the previous text leaves the view briefly, or after `r` or "next".
+- **Recognition errors:** small, curved, reflective or blurred print may be misread, and answers can only be as accurate as the captured text.
+- **Web lookups:** only the search query (the question and the product name) leaves the device; the captured text is not sent. Answers depend on the quality of search results. Lookups are never offered for item-specific details such as expiry, batch or price.
+- **Book mode:** evaluated on synthetic spreads and a real camera frame. Strong page curvature, uneven lighting, fingers over the text and illustrations near the centre of a spread can affect spine and column detection. Motion blur prevents recognition, so the book should be held steady or placed on a surface.
+- **Model accuracy:** although the model is restricted to the captured text, a 7B model can still misread or confuse details. Medically important information should be confirmed with a pharmacist or doctor.
 
 ---
 
@@ -368,17 +395,17 @@ Apple Vision reads the text and a local Qwen model answers questions on the Mac 
 
 | Issue | Solution |
 |---|---|
-| "I can't reach the language model" | Open the Ollama app (or run `ollama serve`) and check `ollama list` shows `qwen2.5:7b-instruct`. |
-| "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo sometimes rate-limits; wait a minute and try again. |
-| It never offers to look things up | The offer only comes when the answer isn't in the text, and never for expiry, batch or price. You can always say "look it up". |
-| First answer is slow | The model loads at start-up; the first answer after a long idle may take a few seconds. |
-| `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). Try the other `CAMERA_INDEX` (`0` or `1`). |
-| Wrong camera opens | Swap `CAMERA_INDEX` between `0` and `1`. An iPhone nearby can also appear as a camera (Continuity Camera). |
-| Camera fails to open on macOS | Allow **Camera** access for your terminal / VS Code (System Settings → Privacy & Security → Camera), then fully quit and reopen it. |
-| Book mode never reads the page | Hold the book still for about a second; watch the status bar — `motion` must drop below the `still <` value. Keep hands off the page. |
-| Book mode reads the same page again | The page moved a lot between reads (it looks like a new page). Keep the book in one place and only turn pages. |
-| It won't capture a new item | Move the old item out of view for a moment, press `r`, or say "next". |
-| My question isn't heard | Wait until the app stops talking, then speak. Allow **Microphone** access for your terminal / VS Code. Or type the question in the terminal. |
-| Wrong language read | Set `TEXT_LANGUAGES` in `.env`, e.g. `en-US,hi-IN`. |
-| No speech output | Run `say hello` in the terminal and check the output device. |
-| `PyAudio` fails to build | `brew install portaudio`, then reinstall with the `CFLAGS`/`LDFLAGS` shown in Installation. |
+| "I can't reach the language model" | Open the Ollama application (or run `ollama serve`) and confirm that `ollama list` includes `qwen2.5:7b-instruct`. |
+| "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo may rate-limit requests; wait a minute and try again. |
+| The web lookup is never offered | The offer appears only when the answer is not in the text, and never for expiry, batch or price. Say "look it up" to search directly. |
+| The first answer is slow | The model loads at start-up; the first answer after a long idle period may take a few seconds. |
+| `Cannot open webcam` | Close other applications using the camera (FaceTime, Zoom, Photo Booth) and try the other `CAMERA_INDEX` (`0` or `1`). |
+| The wrong camera opens | Swap `CAMERA_INDEX` between `0` and `1`. A nearby iPhone may also appear as a camera (Continuity Camera). |
+| The camera fails to open on macOS | Grant **Camera** access to the terminal or VS Code (System Settings → Privacy & Security → Camera), then quit and reopen it. |
+| Book mode does not read the page | Hold the book still for about one second; the `motion` value in the status bar must fall below the `still <` threshold. Keep hands off the page. |
+| Book mode reads the same page again | The book moved substantially between reads. Keep the book in place and only turn the pages. |
+| A new item is not captured | Move the previous item out of view briefly, press `r`, or say "next". |
+| A spoken question is not recognised | Wait until the application stops speaking before asking. Grant **Microphone** access to the terminal or VS Code, or type the question in the terminal. |
+| Text is read in the wrong language | Set `TEXT_LANGUAGES` in `.env`, for example `en-US,hi-IN`. |
+| No speech output | Run `say hello` in the terminal and check the audio output device. |
+| `PyAudio` fails to build | Run `brew install portaudio`, then reinstall with the `CFLAGS` and `LDFLAGS` shown under Installation. |

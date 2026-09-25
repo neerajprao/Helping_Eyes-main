@@ -7,8 +7,8 @@ Everything else here is classic OpenCV / NumPy:
 
     PageTurnDetector   frame differencing + a small state machine
                        -> fires once per new page, after the page settles
-    split_spread()     column brightness profile -> finds the book's gutter
-                       (the dark shadow of the spine) and splits a two-page spread
+    split_spread()     finds the book, then its spine: the text-free (smoothest)
+                       vertical strip, or the spine's shadow -> splits a two-page spread
     find_blocks()      adaptive threshold + projection profiles
                        -> text columns, then paragraphs, in reading order
     order_lines()      puts Apple Vision's lines into that reading order
@@ -140,29 +140,93 @@ class PageTurnDetector:
 # =====================================================================
 # 2. Two-page spread splitting (gutter detection)
 # =====================================================================
+def _runs(mask: np.ndarray) -> List[Tuple[int, int]]:
+    """Start/end (exclusive) of each run of True values."""
+    padded = np.concatenate([[False], mask, [False]])
+    edges = np.flatnonzero(padded[1:] != padded[:-1])
+    return list(zip(edges[0::2], edges[1::2]))
+
+
+def find_book(image: np.ndarray) -> Box:
+    """
+    The open book = the bright (paper) regions: Otsu threshold on a blurred
+    grayscale image, a closing to fill in the text, then the bounding box of
+    all large paper regions together (a spine shadow can cut the paper into
+    two halves). Falls back to the whole frame when no paper is found.
+    """
+    h, w = image.shape[:2]
+    gray = cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (21, 21), 0)
+    _, bright = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
+    contours, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    big = [c for c in contours if cv2.contourArea(c) > 0.05 * w * h]
+    if big and sum(cv2.contourArea(c) for c in big) > 0.2 * w * h:
+        x, y, bw, bh = cv2.boundingRect(np.vstack(big))
+        return (x, y, x + bw, y + bh)
+    return (0, 0, w, h)
+
+
+def texture_profile(gray: np.ndarray, window: int = 15) -> np.ndarray:
+    """
+    How "busy" each x column is: the local standard deviation of brightness,
+    averaged down the column. Text is busy even when blurred; blank margins
+    and the spine are smooth.
+    """
+    g = cv2.GaussianBlur(gray.astype(np.float32), (3, 3), 0)
+    mean = cv2.blur(g, (window, window))
+    mean_sq = cv2.blur(g * g, (window, window))
+    std = np.sqrt(np.maximum(mean_sq - mean * mean, 0))
+    h = g.shape[0]
+    profile = std[int(h * 0.1):int(h * 0.9)].mean(axis=0)
+    k = max(3, g.shape[1] // 60)
+    return np.convolve(profile, np.ones(k) / k, mode="same")
+
+
 def split_spread(image: np.ndarray, min_depth: float = 0.12) -> Optional[int]:
     """
-    Find the gutter of an open book: the darkest vertical valley in the
-    middle of the image. Returns its x position, or None for a single page.
+    Find the gutter (spine) of an open book and return its x position, or
+    None for a single page.
 
-    Column-wise mean brightness is smoothed; the valley must be at least
-    `min_depth` (12%) darker than the pages on both sides. The white gap
-    between two text columns is BRIGHTER than the text, so it isn't mistaken
-    for a gutter.
+    1. Find the book (the paper). A two-page spread is clearly wider than
+       tall; a single page is not.
+    2. The spine's shadow: a half-open book casts a dark valley in the
+       column brightness profile. When it's clear, it's the most precise clue.
+    3. The text-free strip: text never crosses the spine, so the two inner
+       margins form a smooth vertical strip in the middle of the book. This
+       works for a flat, fully open book whose spine casts no shadow. Of the
+       smooth strips, the one nearest the middle of the book wins.
     """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    h, w = gray.shape
-    profile = gray[int(h * 0.1):int(h * 0.9)].mean(axis=0)
-    k = max(3, w // 100)
-    profile = np.convolve(profile, np.ones(k) / k, mode="same")
+    h, w = image.shape[:2]
+    bx1, by1, bx2, by2 = find_book(image)
+    bw, bh = bx2 - bx1, by2 - by1
+    if bw < 1.1 * bh:
+        return None                      # taller than wide: a single page
+    gray = cv2.cvtColor(image[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
+    lo, hi = int(bw * 0.3), int(bw * 0.7)
 
-    lo, hi = int(w * 0.35), int(w * 0.65)
+    # --- clue 1: the spine's shadow ---
+    profile = gray.astype(np.float32)[int(bh * 0.1):int(bh * 0.9)].mean(axis=0)
+    k = max(3, bw // 100)
+    profile = np.convolve(profile, np.ones(k) / k, mode="same")
     x = lo + int(np.argmin(profile[lo:hi]))
-    valley = profile[x]
-    left = np.median(profile[int(w * 0.15):lo])
-    right = np.median(profile[hi:int(w * 0.85)])
-    if valley < (1.0 - min_depth) * min(left, right):
-        return x
+    left = np.median(profile[int(bw * 0.15):lo])
+    right = np.median(profile[hi:int(bw * 0.85)])
+    if profile[x] < (1.0 - min_depth) * min(left, right):
+        return bx1 + x
+
+    # --- clue 2: the smooth, text-free strip nearest the middle ---
+    tex = texture_profile(gray)
+    text_level = float(np.median(tex[int(bw * 0.1):int(bw * 0.9)]))
+    quiet = tex[lo:hi] < 0.6 * text_level
+    runs = [(a, b) for a, b in _runs(quiet) if b - a >= max(4, bw * 0.015)]
+    if runs:
+        middle = bw / 2 - lo
+        a, b = min(runs, key=lambda r: 0 if r[0] <= middle <= r[1] else min(abs(r[0] - middle), abs(r[1] - middle)))
+        return bx1 + lo + (a + b) // 2
+
+    # --- a very wide book with no clear clue: split down the middle ---
+    if bw > 1.3 * bh and bw > 0.5 * w:
+        return bx1 + bw // 2
     return None
 
 
@@ -174,13 +238,6 @@ class Block:
     box: Box
     column: int
     paragraph: int
-
-
-def _runs(mask: np.ndarray) -> List[Tuple[int, int]]:
-    """Start/end (exclusive) of each run of True values."""
-    padded = np.concatenate([[False], mask, [False]])
-    edges = np.flatnonzero(padded[1:] != padded[:-1])
-    return list(zip(edges[0::2], edges[1::2]))
 
 
 def ink_mask(page: np.ndarray) -> np.ndarray:
@@ -272,29 +329,16 @@ def find_blocks(page: np.ndarray, ink: Optional[np.ndarray] = None) -> List[Bloc
 # =====================================================================
 # 4. Reading order for Apple Vision's lines
 # =====================================================================
-def _join_lines(lines: List[TextLine]) -> str:
-    """Join lines into flowing text, re-joining words hyphenated across lines."""
-    text = ""
-    for line in lines:
-        t = line.text.strip()
-        if not t:
-            continue
-        if text.endswith("-") and t[:1].islower():
-            text = text[:-1] + t
-        else:
-            text = f"{text} {t}" if text else t
-    return text
-
-
-def order_lines(lines: List[TextLine], blocks: List[Block]) -> List[str]:
+def order_lines(lines: List[TextLine], blocks: List[Block]) -> List[List[TextLine]]:
     """
     Assign each recognised line to the block containing its centre (or the
     nearest block), then read blocks in order and lines top to bottom.
-    Returns one string per paragraph; stray lines (headers, page numbers)
-    come last.
+    Returns one list of lines per paragraph; stray lines (headers, page
+    numbers) come last.
     """
+    by_position = lambda l: (l.box[1], l.box[0])
     if not blocks:
-        return [_join_lines(sorted(lines, key=lambda l: (l.box[1], l.box[0])))] if lines else []
+        return [sorted(lines, key=by_position)] if lines else []
 
     groups: List[List[TextLine]] = [[] for _ in blocks]
     strays: List[TextLine] = []
@@ -315,30 +359,64 @@ def order_lines(lines: List[TextLine], blocks: List[Block]) -> List[str]:
         else:
             strays.append(line)
 
-    paragraphs = [_join_lines(sorted(g, key=lambda l: (l.box[1], l.box[0]))) for g in groups if g]
+    paragraphs = [sorted(g, key=by_position) for g in groups if g]
     if strays:
-        paragraphs.append(_join_lines(sorted(strays, key=lambda l: (l.box[1], l.box[0]))))
-    return [p for p in paragraphs if p]
+        paragraphs.append(sorted(strays, key=by_position))
+    return paragraphs
 
 
 # =====================================================================
 # 5. Whole frame
 # =====================================================================
 @dataclass
+class LineSpan:
+    """Where one printed line ended up in the page text, and where it is on screen."""
+    start: int      # character offsets into the page text
+    end: int
+    box: Box        # full-frame pixel coordinates
+    words: List[Tuple[int, int, Box]] = field(default_factory=list)  # same, per word
+
+
+@dataclass
 class PageLayout:
     """Everything found in one frame, in full-frame pixel coordinates (for drawing)."""
     gutter_x: Optional[int] = None
     columns: List[Box] = field(default_factory=list)
     blocks: List[Box] = field(default_factory=list)   # in reading order
+    lines: List[LineSpan] = field(default_factory=list)
+    paragraphs: List[Tuple[int, int]] = field(default_factory=list)  # (start, end) in the page text
+
+    def line_at(self, pos: int) -> Optional[LineSpan]:
+        """The printed line that contains character `pos` of the page text."""
+        for span in self.lines:
+            if span.start <= pos < span.end:
+                return span
+        return None
+
+    def word_at(self, pos: int) -> Optional[Box]:
+        """Screen box of the word at character `pos` (or the next word on that line)."""
+        span = self.line_at(pos)
+        if span is None:
+            return None
+        for start, end, box in span.words:
+            if pos < end:
+                return box
+        return None
 
 
 def read_page(frame: np.ndarray) -> Tuple[str, PageLayout]:
-    """Split the spread, lay out each page, read it with Apple Vision, order the text."""
+    """
+    Split the spread, lay out each page, read it with Apple Vision and order
+    the text. Paragraphs are separated by a blank line; lines within a
+    paragraph are joined with spaces (re-joining words hyphenated across
+    lines). The layout remembers which characters came from which printed
+    line, so the app can show exactly where it is reading.
+    """
     h, w = frame.shape[:2]
     layout = PageLayout(gutter_x=split_spread(frame))
     pages = [(0, layout.gutter_x), (layout.gutter_x, w)] if layout.gutter_x else [(0, w)]
 
-    paragraphs: List[str] = []
+    text = ""
     for x_start, x_end in pages:
         page = frame[:, x_start:x_end]
         ink = ink_mask(page)
@@ -348,6 +426,29 @@ def read_page(frame: np.ndarray) -> Tuple[str, PageLayout]:
         for b in blocks:
             x1, y1, x2, y2 = b.box
             layout.blocks.append((x_start + x1, y1, x_start + x2, y2))
-        paragraphs += order_lines(recognize_text(page, fast=False), blocks)
 
-    return "\n\n".join(paragraphs), layout
+        for paragraph in order_lines(recognize_text(page, fast=False, word_boxes=True), blocks):
+            para_start = None
+            for line in paragraph:
+                t = line.text.strip()
+                if not t:
+                    continue
+                if para_start is None:
+                    if text:
+                        text += "\n\n"
+                    para_start = len(text)
+                elif text.endswith("-") and t[:1].islower():
+                    text = text[:-1]          # "exam-" + "ple" -> "example"
+                else:
+                    text += " "
+                start = len(text)
+                text += t
+                x1, y1, x2, y2 = line.box
+                lead = len(line.text) - len(line.text.lstrip())   # strip() shifted the offsets
+                words = [(start + a - lead, start + b - lead, (x_start + bx1, by1, x_start + bx2, by2))
+                         for a, b, (bx1, by1, bx2, by2) in line.words]
+                layout.lines.append(LineSpan(start, len(text), (x_start + x1, y1, x_start + x2, y2), words))
+            if para_start is not None:
+                layout.paragraphs.append((para_start, len(text)))
+
+    return text, layout

@@ -13,7 +13,7 @@ Optional .env setting:
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import cv2
@@ -37,6 +37,8 @@ class TextLine:
     text: str
     confidence: float
     box: Box
+    # (start, end, box) of each word in `text`; filled when word_boxes=True
+    words: List[Tuple[int, int, Box]] = field(default_factory=list)
 
 
 def _to_cgimage(image: np.ndarray):
@@ -53,8 +55,20 @@ def _to_cgimage(image: np.ndarray):
     )
 
 
-def recognize_text(image: np.ndarray, fast: bool = False) -> List[TextLine]:
-    """Find and read every line of text in a BGR image, in reading order."""
+def _to_pixels(bb, w: int, h: int) -> Box:
+    """Vision's normalised, bottom-left-origin rectangle -> pixel box, top-left origin."""
+    x1 = int(bb.origin.x * w)
+    x2 = int((bb.origin.x + bb.size.width) * w)
+    y1 = int((1.0 - bb.origin.y - bb.size.height) * h)
+    y2 = int((1.0 - bb.origin.y) * h)
+    return (max(0, x1), max(0, y1), min(w, x2), min(h, y2))
+
+
+def recognize_text(image: np.ndarray, fast: bool = False, word_boxes: bool = False) -> List[TextLine]:
+    """
+    Find and read every line of text in a BGR image, in reading order.
+    word_boxes=True also records where each word is (accurate mode only).
+    """
     h, w = image.shape[:2]
 
     # Vision objects are autoreleased; drain them every call so a live loop
@@ -83,13 +97,14 @@ def recognize_text(image: np.ndarray, fast: bool = False) -> List[TextLine]:
             if not candidates:
                 continue
             best = candidates[0]
-            bb = obs.boundingBox()  # normalised 0..1, origin bottom-left
-            x1 = int(bb.origin.x * w)
-            x2 = int((bb.origin.x + bb.size.width) * w)
-            y1 = int((1.0 - bb.origin.y - bb.size.height) * h)
-            y2 = int((1.0 - bb.origin.y) * h)
-            lines.append(TextLine(str(best.string()), float(best.confidence()),
-                                  (max(0, x1), max(0, y1), min(w, x2), min(h, y2))))
+            text = str(best.string())
+            line = TextLine(text, float(best.confidence()), _to_pixels(obs.boundingBox(), w, h))
+            if word_boxes and not fast:
+                for m in re.finditer(r"\S+", text):
+                    rect, _ = best.boundingBoxForRange_error_((m.start(), m.end() - m.start()), None)
+                    if rect is not None:
+                        line.words.append((m.start(), m.end(), _to_pixels(rect.boundingBox(), w, h)))
+            lines.append(line)
         return lines
 
 

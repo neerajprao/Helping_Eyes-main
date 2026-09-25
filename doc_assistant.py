@@ -220,10 +220,10 @@ class DocAssistant:
             r = requests.post(f"{OLLAMA_HOST}/api/generate",
                               json={"model": LLM_MODEL, "keep_alive": "30m"}, timeout=120)
             r.raise_for_status()
-            logger.info(f"✅ {LLM_MODEL} loaded in Ollama")
+            logger.info(f"{LLM_MODEL} loaded in Ollama")
             return True
         except Exception as e:
-            logger.error(f"❌ Could not load {LLM_MODEL} from Ollama at {OLLAMA_HOST}: {e}")
+            logger.error(f"Could not load {LLM_MODEL} from Ollama at {OLLAMA_HOST}: {e}")
             return False
 
     def ask(self, question: str) -> Iterator[str]:
@@ -263,11 +263,11 @@ class DocAssistant:
             document = self.document
 
         query = self._search_query(question, document) or question
-        logger.info(f"🌐 Searching the web for: {query}")
+        logger.info(f"Searching the web for: {query}")
         try:
             results = web_search(query)
         except Exception as e:
-            logger.error(f"❌ Web search failed: {e}")
+            logger.error(f"Web search failed: {e}")
             yield "Sorry, I couldn't search online right now."
             return
         if generation != self._generation:
@@ -300,7 +300,7 @@ class DocAssistant:
             query = r.json()["message"]["content"].strip().strip('"').splitlines()[0]
             return query[:120] or None
         except Exception as e:
-            logger.warning(f"⚠️ Couldn't build a search query: {e}")
+            logger.warning(f"Couldn't build a search query: {e}")
             return None
 
     def _stream(self, messages: List[dict], generation: int, markers=()) -> Iterator[str]:
@@ -328,7 +328,7 @@ class DocAssistant:
                 r.raise_for_status()
                 for raw in r.iter_lines():
                     if generation != self._generation:
-                        logger.info("⏹️ Answer cancelled")
+                        logger.info("Answer cancelled")
                         return
                     if not raw:
                         continue
@@ -367,7 +367,7 @@ class DocAssistant:
             yield "I can't reach the language model. Please make sure Ollama is running."
             return
         except Exception as e:
-            logger.error(f"❌ Model error: {e}")
+            logger.error(f"Model error: {e}")
             yield "Sorry, something went wrong while thinking about that."
             return
 
