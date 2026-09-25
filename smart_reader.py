@@ -17,6 +17,7 @@ load_dotenv()  # before importing modules that read settings from .env
 from speech import Speaker
 from text_vision import find_text_region, read_text
 from doc_assistant import DocAssistant, READ_ALL, LLM_MODEL, wants_read_all, web_lookup_allowed
+from book_mode import PageTurnDetector, read_page
 
 # ================= LOGGING =================
 logging.basicConfig(
@@ -67,6 +68,7 @@ _rearm_requested = False   # user asked for a new capture
 _last_answer = ""          # for "repeat"
 _last_question = ""        # for "look it up"
 _pending_search = ""       # question waiting for a yes/no to "Should I look it up online?"
+_book_mode = False         # read a book page by page (see book_mode.py)
 _requests: "queue.Queue[str]" = queue.Queue()
 
 # Short spoken commands handled by the app itself, not the model
@@ -75,6 +77,8 @@ _REPEAT = re.compile(r"^(repeat|repeat that|say (that|it) again|again|pardon|wha
 _NEW_CAPTURE = re.compile(r"^(next|next page|new page|scan( again)?|capture( again)?|read something else|new (text|item|document))[.!]*$")
 _YES = re.compile(r"^(yes|yeah|yep|yup|sure|ok|okay|please|please do|do it|go ahead|yes please|look it up|search)[.!]*$")
 _NO = re.compile(r"^(no|nope|nah|no thanks|no thank you|don't|never mind|leave it)[.!]*$")
+_BOOK_ON = re.compile(r"^(start |turn on |enter |switch to )?(book|reading) mode( on)?[.!]*$|^read (a|my|this) book[.!]*$")
+_BOOK_OFF = re.compile(r"^(stop|exit|leave|end|turn off|quit) (book|reading) mode[.!]*$|^(book|reading) mode off[.!]*$|^(normal|regular) mode[.!]*$")
 # "look it up", "search online", "google that" -> web search for the last question
 _SEARCH_LAST = re.compile(r"^(please )?(look (it|that) up|search|google)( (it|that))?( (online|on the internet|on the web|the web|the internet))?( please)?[.!]*$")
 # "search the web for X", "look up X", "google X" -> web search for X
@@ -85,7 +89,10 @@ def request_new_capture() -> None:
     stop_speech()
     _pending_search = ""
     _rearm_requested = True
-    speak("Okay. Show me the next thing.")
+    if _book_mode:
+        speak("Turn the page and hold it still. I'll read it.")
+    else:
+        speak("Okay. Show me the next thing.")
 
 def web_answer(question: str) -> None:
     """Search the web for the question and speak the answer"""
@@ -101,6 +108,28 @@ def web_answer(question: str) -> None:
         _thinking = False
     if answer:
         _last_answer = " ".join(answer)
+
+def set_book_mode(on: bool) -> None:
+    """Switch between normal capture and book reading mode"""
+    global _book_mode, _pending_search
+    stop_speech()
+    _pending_search = ""
+    _book_mode = on
+    if on:
+        speak("Book mode. Hold the book open in front of the camera. I'll read each page, and the next one when you turn it.")
+    else:
+        speak("Normal mode.")
+
+def load_page(text: str, page_no: int) -> None:
+    """A new book page was read: make it the current text and speak it"""
+    global _pending_search, _last_answer
+    stop_speech()
+    _pending_search = ""
+    doc.set_document(text)  # questions now refer to this page
+    logger.info(f"📖 Page {page_no}, {len(text)} characters:\n{text}")
+    _last_answer = text
+    speak(f"Page {page_no}.")
+    speak(text)
 
 def speak_document() -> None:
     """Read everything Apple Vision captured, exactly as captured"""
@@ -137,6 +166,12 @@ def handle_request(text: str) -> None:
     if _REPEAT.match(lower):
         stop_speech()
         speak(_last_answer or "Nothing to repeat yet.")
+        return
+    if _BOOK_OFF.match(lower):
+        set_book_mode(False)
+        return
+    if _BOOK_ON.match(lower):
+        set_book_mode(True)
         return
     if _NEW_CAPTURE.match(lower):
         request_new_capture()
@@ -474,6 +509,8 @@ def main():
             stop_speech()
         elif key == ord('r'):
             request_new_capture()
+        elif key == ord('b'):
+            set_book_mode(not _book_mode)
         elif key == ord('a'):
             if doc.has_document():
                 stop_speech()
@@ -489,6 +526,38 @@ def main():
     last_frame_id = 0
     last_detect_time = 0
     box, lines = None, []
+
+    # ================= BOOK MODE STATE =================
+    page_detector = PageTurnDetector()
+    book_active = False          # book mode was running on the previous frame
+    page_layout = None           # columns / paragraphs of the page being read
+    layout_scale = (1.0, 1.0)    # full frame -> display
+    page_no = 0
+    turn_prompted = True         # "Turn the page" already said for this page
+
+    def draw_layout(img):
+        """Draw the book-mode analysis: gutter, columns, numbered paragraphs"""
+        if page_layout is None or page_detector.state == "TURNING":
+            return
+        sx, sy = layout_scale
+        if page_layout.gutter_x:
+            gx = int(page_layout.gutter_x * sx)
+            cv2.line(img, (gx, 0), (gx, DISPLAY_H), (0, 255, 255), 2)
+        for x1, _, x2, _ in page_layout.columns:
+            cv2.rectangle(img, (int(x1 * sx), GUIDE_Y1), (int(x2 * sx), GUIDE_Y2), (255, 120, 0), 1)
+        for i, (x1, y1, x2, y2) in enumerate(page_layout.blocks, 1):
+            p1, p2 = (int(x1 * sx), int(y1 * sy)), (int(x2 * sx), int(y2 * sy))
+            cv2.rectangle(img, p1, p2, (0, 200, 0), 2)
+            badge = (max(14, p1[0] - 20), p1[1] + 12)   # in the margin, left of the paragraph
+            cv2.circle(img, badge, 14, (0, 0, 220), -1)
+            cv2.putText(img, str(i), (badge[0] - 7 if i < 10 else badge[0] - 12, badge[1] + 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+
+    def draw_book_status(img, note=""):
+        cv2.rectangle(img, (0, DISPLAY_H - 40), (DISPLAY_W, DISPLAY_H), (40, 40, 40), -1)
+        status = (f"BOOK MODE   Page {page_no}   {note or page_detector.state}   "
+                  f"motion {page_detector.motion:.1f} (still < {page_detector.motion_off:.1f})   B = exit")
+        cv2.putText(img, status, (15, DISPLAY_H - 13), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     try:
         while True:
@@ -523,6 +592,43 @@ def main():
                 # Preview is shown as the camera sees it (not mirrored)
                 small = cv2.resize(frame, (DISPLAY_W, DISPLAY_H))
                 display = small.copy()
+
+                # ===== BOOK MODE: read page by page, triggered by page turns =====
+                # Runs even while speaking, so turning the page mid-read moves on.
+                if _book_mode:
+                    if not book_active:
+                        book_active = True
+                        page_detector.reset()
+                        page_layout, page_no, turn_prompted = None, 0, True
+
+                    if page_detector.update(small):
+                        draw_book_status(display, "READING PAGE...")
+                        cv2.imshow(window, display)
+                        cv2.waitKey(1)
+                        try:
+                            text, page_layout = read_page(frame)
+                        except Exception as e:
+                            logger.error(f"❌ Page reading error: {e}")
+                            text, page_layout = "", None
+                        layout_scale = (DISPLAY_W / frame.shape[1], DISPLAY_H / frame.shape[0])
+                        if text.strip():
+                            page_no += 1
+                            load_page(text, page_no)
+                            turn_prompted = False
+                        else:
+                            speak("I can't see any text on this page.")
+                    elif page_no and not turn_prompted and not (speaker.is_speaking or _thinking):
+                        speak("Turn the page.")
+                        turn_prompted = True
+
+                    draw_layout(display)
+                    draw_book_status(display)
+                    cv2.imshow(window, display)
+                    if not handle_key():
+                        break
+                    continue
+                elif book_active:
+                    book_active = False
 
                 busy = speaker.is_speaking or _thinking
                 if busy:

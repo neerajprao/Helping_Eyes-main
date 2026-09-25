@@ -13,11 +13,12 @@
 9. [Installation](#installation)
 10. [Running the System](#running-the-system)
 11. [Usage & Controls](#usage--controls)
-12. [Performance](#performance)
-13. [Innovations](#innovations)
-14. [Known Limitations](#known-limitations)
-15. [References](#references)
-16. [Troubleshooting](#troubleshooting)
+12. [Computer Vision: Book Reading Mode](#computer-vision-book-reading-mode)
+13. [Performance](#performance)
+14. [Innovations](#innovations)
+15. [Known Limitations](#known-limitations)
+16. [References](#references)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -48,6 +49,7 @@ Core capabilities:
   - **"When does it expire?"**, **"Is this safe for children?"** — answers questions about the text.
 - Answers come from a local **Qwen 2.5 7B Instruct** model (via Ollama) and are spoken aloud, sentence by sentence.
 - When the text doesn't have the answer, it offers to **look it up online** — and only searches if the user says yes.
+- **Book mode** reads a book page by page, hands-free: it notices each page turn, splits two-page spreads and reads columns and paragraphs in the right order — using the project's own OpenCV pipeline.
 
 Everything except voice recognition runs on the Mac itself.
 
@@ -107,11 +109,13 @@ flowchart LR
 Helping_Eyes-main/
 ├── smart_reader.py     # Main app: camera, guidance, capture, voice/typed requests
 ├── doc_assistant.py    # Qwen 2.5 7B (Ollama): answers questions, reads parts, expiry checks, web lookup
+├── book_mode.py        # Own OpenCV: page-turn detection, spread splitting, column/paragraph layout
 ├── text_vision.py      # Apple Vision: find text live (fast) and read it (accurate)
 ├── speech.py           # Queued, interruptible text-to-speech (macOS `say`)
 ├── assitant.py         # Alternative reader: Apple Vision finds text, Gemini reads it all aloud
 ├── requirment.txt      # Python dependencies
 ├── .env.example        # Settings template (copy to .env)
+├── docs/               # Screenshots for this README
 └── README.md
 ```
 
@@ -119,7 +123,8 @@ Helping_Eyes-main/
 |---|---|
 | `smart_reader.py` | `handle_request()` routes each request (app command, read everything, or the model) · `capture_document()` stores the captured text · `voice_listener()` / `typed_listener()` take requests · `BackgroundFrameReader` keeps the newest camera frame |
 | `doc_assistant.py` | `DocAssistant.set_document()` / `ask()` (streams the answer sentence by sentence) · `ask_web()` searches and answers from the results · `wants_read_all()` spots "read it all" requests · `expiry_checks()` works out whether expiry dates have passed · `web_lookup_allowed()` blocks lookups for expiry, batch and price |
-| `text_vision.py` | `find_text_region()` for live detection · `read_text()` for the full capture |
+| `book_mode.py` | `PageTurnDetector` (frame differencing state machine) · `split_spread()` (gutter detection) · `find_blocks()` (columns + paragraphs) · `order_lines()` · `read_page()` |
+| `text_vision.py` | `find_text_region()` for live detection · `read_text()` / `recognize_text()` for the full capture |
 | `speech.py` | `Speaker.say()` / `stop()` · `spoke_since()` stops the microphone from hearing the app's own voice |
 
 ---
@@ -232,6 +237,8 @@ python assitant.py
 | "Repeat" | Repeats the last answer |
 | "Stop" | Stops speaking |
 | "Next", "new page", "scan again" | Get ready to capture a new item |
+| "Book mode" / "read my book" | Switch to book mode (see below) |
+| "Normal mode" / "stop book mode" | Back to capturing single items |
 
 **Keys** (click the video window first)
 
@@ -241,12 +248,65 @@ python assitant.py
 | `s` | Stop speaking |
 | `r` | Capture a new item |
 | `a` | Read the full captured text |
+| `b` | Book mode on / off |
 
 The microphone only listens while the app is quiet (so it doesn't hear itself); press `s` to interrupt a long answer.
 
 **Screen states:** `SHOW TEXT HERE` → `ADJUST POSITION` → `HOLD` → `CAPTURED - ASK ME` → `THINKING...` → `SPEAKING...`
 
 **Gemini reader (`assitant.py`):** no questions or voice commands. It sends the captured frame to Gemini and reads all the text aloud. The only key is `q` (quit).
+
+---
+
+## Computer Vision: Book Reading Mode
+
+Book mode reads a book page by page without any buttons: open the book in front of the camera, listen, turn the page, listen. Apple Vision still recognises the letters of each line; **everything else — when to read, where the pages are and in what order to read — is this project's own OpenCV pipeline** in [`book_mode.py`](book_mode.py).
+
+<img src="docs/book_mode_overlay.jpg" width="720" alt="Book mode overlay on a synthetic two-page spread: yellow gutter line, blue column bounds, green paragraph boxes numbered 1 to 5 in reading order">
+
+*Book mode on a synthetic test spread: the gutter (yellow), text columns (blue) and paragraphs (green), numbered in reading order.*
+
+```mermaid
+flowchart LR
+    F[Camera frames] --> M[Frame differencing<br/>motion vs. learned noise floor]
+    M --> S{State machine<br/>TURNING → SETTLING → STEADY}
+    S -- steady 0.8 s --> G{Same page as<br/>last time?<br/>layout fingerprint}
+    G -- new page --> SP[Gutter detection<br/>split the spread]
+    SP --> L[Adaptive threshold<br/>remove ruled lines]
+    L --> C[Vertical projection<br/>→ columns]
+    C --> P[Horizontal projection<br/>→ paragraphs]
+    P --> O[Order Apple Vision's lines<br/>by column, paragraph, y]
+    O --> R[Speak page · keep for questions]
+```
+
+### 1. Page-turn detection — frame differencing + state machine
+- Each frame is shrunk to 320×180, converted to grayscale and blurred; the **mean absolute difference** from the previous frame measures motion. A **median over the last 5 frames** stops one noisy frame from resetting anything.
+- The detector **learns the camera's noise floor** (a running average of motion while nothing moves) and sets its "moving" / "still" thresholds relative to it, so it works across cameras and lighting.
+- A small state machine — `TURNING` → `SETTLING` → `STEADY` — reads the page once it has been still for 0.8 s.
+- **Same-page check:** a 80×45 binary *layout fingerprint* (adaptive threshold + horizontal dilation, so each text line becomes a band) is compared with the last page read. A hand passing over the page doesn't cause a re-read; a new page does.
+
+### 2. Two-page spread splitting — gutter detection
+- The **column-wise mean brightness** across the middle of the image is smoothed; the book's spine casts a shadow that shows up as a **dark valley** in this profile.
+- If the darkest point in the central 35–65% is at least 12% darker than both pages, the spread is split there and each page is processed separately. The white gap between two text columns is *brighter* than text, so it is never mistaken for a gutter.
+
+### 3. Layout analysis — columns and paragraphs
+- **Adaptive Gaussian threshold** turns the page into "ink" pixels; a small opening removes speckles.
+- **Ruled-line removal:** a morphological opening with long thin kernels keeps only straight lines (page edges, rules, table borders), which are then subtracted — otherwise they fill in the gaps between columns.
+- **Columns:** a **vertical projection profile** (ink per x position). Gaps between columns are wide runs of empty x; gaps between words never line up from line to line, so they don't.
+- **Paragraphs:** inside each column a **horizontal projection profile** finds text lines; a gap clearly taller than the typical line gap starts a new paragraph.
+- **Reading order:** each line Apple Vision recognised is assigned to the block containing its centre; blocks are read column by column, paragraph by paragraph, and words hyphenated across lines are re-joined.
+
+### Results (synthetic test pages)
+
+| Test | Result |
+|---|---|
+| Gutter position on a two-page spread | exact (x = 960 of 1920) |
+| Columns / paragraphs found | 1 column + 3 paragraphs (left page), 2 columns + 2 + 2 paragraphs (right page) — all correct |
+| Page-turn sequences (still page → hand passes over it → page turned → new page), 10 random noise seeds | 10/10 correct: first page read after ~0.9 s of stillness, no re-read when a hand passes over, new page read ~1 s after the turn |
+| Reading-order score, full-width two-page spread | 1.00 with book mode, 0.98 with Apple Vision alone |
+| Time per frame / per page | page-turn detector 0.2 ms per frame; gutter + layout analysis 8 ms; whole page including Apple Vision ~180 ms |
+
+Apple Vision's own line order is already good on clean pages; book mode's main gains are hands-free page turning, correct handling of two-page spreads, and paragraph structure (natural pauses between paragraphs).
 
 ---
 
@@ -261,6 +321,7 @@ Measured on an Apple Silicon Mac:
 | First spoken sentence of an answer (Qwen 2.5 7B) | ~0.5–1.5 s |
 | "Read everything" | instant (no model involved) |
 | Web lookup (search + answer) | ~5–9 s |
+| Book mode: page turn → start reading | ~1 s (0.8 s settle + ~0.2 s to read the page) |
 
 ---
 
@@ -286,6 +347,7 @@ Apple Vision reads the text and a local Qwen model answers questions on the Mac 
 - **Moving to a new item:** a new capture happens only after the text leaves the view for a moment, or after `r` / "next".
 - **OCR mistakes:** small, curved, shiny or blurry print can be misread, and the model's answer can only be as good as the captured text.
 - **Web lookups:** only the search query (your question plus the product name) leaves the Mac; the captured text is not sent. Web answers are only as good as the search results, and lookups are never offered for expiry, batch or price, which only the item itself can tell you.
+- **Book mode** was tested on synthetic pages; real books add page curvature, uneven lighting and thumbs over the text. Very curved pages near the spine and pages with pictures in the middle can confuse the gutter and column detection.
 - **Model answers can be wrong:** Qwen is told to use only the captured text, but a 7B model can still misread or mix up details. Check anything medically important with a pharmacist or doctor.
 
 ---
@@ -313,6 +375,8 @@ Apple Vision reads the text and a local Qwen model answers questions on the Mac 
 | `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). Try the other `CAMERA_INDEX` (`0` or `1`). |
 | Wrong camera opens | Swap `CAMERA_INDEX` between `0` and `1`. An iPhone nearby can also appear as a camera (Continuity Camera). |
 | Camera fails to open on macOS | Allow **Camera** access for your terminal / VS Code (System Settings → Privacy & Security → Camera), then fully quit and reopen it. |
+| Book mode never reads the page | Hold the book still for about a second; watch the status bar — `motion` must drop below the `still <` value. Keep hands off the page. |
+| Book mode reads the same page again | The page moved a lot between reads (it looks like a new page). Keep the book in one place and only turn pages. |
 | It won't capture a new item | Move the old item out of view for a moment, press `r`, or say "next". |
 | My question isn't heard | Wait until the app stops talking, then speak. Allow **Microphone** access for your terminal / VS Code. Or type the question in the terminal. |
 | Wrong language read | Set `TEXT_LANGUAGES` in `.env`, e.g. `en-US,hi-IN`. |
