@@ -10,7 +10,7 @@ from typing import Tuple, Optional
 from collections import deque
 from dotenv import load_dotenv
 from speech import Speaker
-from text_vision import find_text_region, read_text, scale_box, mirror_box
+from text_vision import find_text_region, read_text
 
 # ================= LOGGING =================
 logging.basicConfig(
@@ -28,6 +28,7 @@ CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 READ_COOLDOWN = 3          # seconds between two reads
 MIN_TEXT_CHARS = 8         # ignore specks: need this many characters to count as text
 MIN_TEXT_HEIGHT = 14       # px on the 720p preview; smaller text -> "Move closer"
+DETECT_INTERVAL = 0.1      # look for text 10x a second (plenty for guidance, saves CPU)
 
 # ================= SPEECH =================
 speaker = Speaker()
@@ -66,6 +67,7 @@ def voice_listener(get_last_text_callback) -> None:
 
     try:
         recognizer = sr.Recognizer()
+        recognizer.operation_timeout = 5  # don't wait forever on Google's server
         mic = sr.Microphone()
 
         with mic as source:
@@ -136,7 +138,7 @@ LAST_READ = 0
 _same_announced = False
 
 def analyze_image(frame: np.ndarray, last_text: str) -> str:
-    """Read all text in the full-resolution (unmirrored) frame and speak what's new"""
+    """Read all text in the full-resolution frame and speak what's new"""
     global LAST_READ, _force_next_capture, _same_announced
 
     if time.time() - LAST_READ < READ_COOLDOWN:
@@ -200,6 +202,7 @@ class BackgroundFrameReader(threading.Thread):
         self.cap = None
         self.buffer = deque(maxlen=buffer_size)
         self.buffer_lock = threading.Lock()
+        self.frame_id = 0
         self.running = True
         self.connected = False
         self.consecutive_failures = 0
@@ -227,6 +230,7 @@ class BackgroundFrameReader(threading.Thread):
                 self.consecutive_failures = 0
                 with self.buffer_lock:
                     self.buffer.append(frame)
+                    self.frame_id += 1
                 return True
             logger.warning("⚠️ Camera opened but no valid frame returned")
             self.close()
@@ -250,6 +254,7 @@ class BackgroundFrameReader(threading.Thread):
                 if ret and frame is not None and frame.size > 0:
                     with self.buffer_lock:
                         self.buffer.append(frame)
+                        self.frame_id += 1
                     self.consecutive_failures = 0
                 else:
                     self.consecutive_failures += 1
@@ -267,12 +272,12 @@ class BackgroundFrameReader(threading.Thread):
                 self.consecutive_failures += 1
                 time.sleep(1)
 
-    def get_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
-        """Get latest frame from buffer"""
+    def get_frame(self) -> Tuple[int, Optional[np.ndarray]]:
+        """Get latest frame and its number (0, None when nothing yet)"""
         with self.buffer_lock:
             if len(self.buffer) > 0:
-                return True, self.buffer[-1]
-        return False, None
+                return self.frame_id, self.buffer[-1]
+        return 0, None
 
     def close(self):
         """Close camera safely"""
@@ -360,7 +365,7 @@ def main():
         return overlap_area / text_area if text_area > 0 else 0.0
 
     def get_guidance(box, lines):
-        """Hints use mirrored coordinates, so left/right match the user's view"""
+        """Spoken hint to bring the text fully into view ("" when it's fine)"""
         x1, y1, x2, y2 = box
         heights = sorted(l.box[3] - l.box[1] for l in lines)
         if heights and heights[len(heights) // 2] < MIN_TEXT_HEIGHT:
@@ -390,13 +395,16 @@ def main():
     logger.info("🎬 Starting main loop")
     window = "Smart Reader"
     no_frame_counter = 0
+    last_frame_id = 0
+    last_detect_time = 0
+    box, lines = None, []
 
     try:
         while True:
             try:
-                ret, frame = frame_reader.get_frame()
+                frame_id, frame = frame_reader.get_frame()
 
-                if not ret or frame is None:
+                if frame is None:
                     no_frame_counter += 1
                     if no_frame_counter > 30:
                         logger.warning("⚠️ No frames for 1 second, waiting for camera...")
@@ -407,6 +415,15 @@ def main():
                     continue
                 no_frame_counter = 0
 
+                # Same frame as last time: nothing new to look at, just keep
+                # the window responsive (avoids spinning a CPU core at 100%)
+                if frame_id == last_frame_id:
+                    if not handle_key():
+                        break
+                    time.sleep(0.005)
+                    continue
+                last_frame_id = frame_id
+
                 if _restart_capture:
                     is_stable = False
                     stable_start = 0
@@ -414,13 +431,14 @@ def main():
                     _restart_capture = False
                     speak("Ready for next capture")
 
-                # Detection runs on the unmirrored image (mirrored text can't be read);
-                # the preview is mirrored like a selfie view.
+                # Preview is shown as the camera sees it (not mirrored)
                 small = cv2.resize(frame, (DISPLAY_W, DISPLAY_H))
-                display = cv2.flip(small, 1)
+                display = small.copy()
 
                 if speaker.is_speaking:
-                    draw_guide_box(display, GUIDE_COLOR_IDLE, "READING...")
+                    # Long text takes a while to speak; make it obvious the app
+                    # is busy talking (not frozen) and how to interrupt it.
+                    draw_guide_box(display, GUIDE_COLOR_IDLE, "READING...  S = stop   R = read next")
                     cv2.imshow(window, display)
                     if not handle_key():
                         break
@@ -435,17 +453,19 @@ def main():
                         last_light_warning = time.time()
 
                 # ===== FIND TEXT (Apple Vision, fast mode) =====
-                try:
-                    box, lines = find_text_region(small, MIN_TEXT_CHARS)
-                except Exception as e:
-                    logger.error(f"❌ Detection error: {e}")
-                    box, lines = None, []
+                # Between checks, the last result is redrawn on the new frame.
+                if time.time() - last_detect_time >= DETECT_INTERVAL:
+                    last_detect_time = time.time()
+                    try:
+                        box, lines = find_text_region(small, MIN_TEXT_CHARS)
+                    except Exception as e:
+                        logger.error(f"❌ Detection error: {e}")
+                        box, lines = None, []
 
                 if box is not None:
                     for line in lines:
-                        lx1, ly1, lx2, ly2 = mirror_box(line.box, DISPLAY_W)
+                        lx1, ly1, lx2, ly2 = line.box
                         cv2.rectangle(display, (lx1, ly1), (lx2, ly2), LINE_COLOR, 1)
-                    box = mirror_box(box, DISPLAY_W)
                     cv2.rectangle(display, (box[0], box[1]), (box[2], box[3]), LINE_COLOR, 2)
 
                     hint = get_guidance(box, lines)

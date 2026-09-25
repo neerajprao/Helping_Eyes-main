@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from PIL import Image
 import re
 from speech import Speaker
-from text_vision import find_text_region, mirror_box
+from text_vision import find_text_region
 
 # ================= CONFIG =================
 load_dotenv()
@@ -145,10 +145,9 @@ def main():
         if not ret:
             break
 
-        # Find text on the unmirrored image (mirrored text can't be read);
-        # the preview is mirrored like a selfie view.
+        # Preview is shown as the camera sees it (not mirrored)
         small = cv2.resize(frame, (1280, 720))
-        display = cv2.flip(small, 1)
+        display = small.copy()
 
         # Vision loop pauses while speaking
         if speaker.is_speaking:
@@ -163,7 +162,7 @@ def main():
         box, lines = find_text_region(small, MIN_TEXT_CHARS)
 
         if box is not None:
-            x1, y1, x2, y2 = mirror_box(box, display.shape[1])
+            x1, y1, x2, y2 = box
             cv2.rectangle(display, (x1, y1), (x2, y2), (255, 100, 0), 3)
 
             cx = (x1 + x2) // 2

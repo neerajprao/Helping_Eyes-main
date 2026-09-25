@@ -23,6 +23,7 @@ if sys.platform != "darwin":
     raise RuntimeError("text_vision.py uses Apple Vision and only runs on macOS.")
 
 import objc
+import Quartz
 import Vision
 from Foundation import NSData
 
@@ -38,18 +39,28 @@ class TextLine:
     box: Box
 
 
+def _to_cgimage(image: np.ndarray):
+    """Hand raw pixels to Vision as a CGImage: lossless and faster than
+    encoding to JPEG (JPEG artefacts caused misreads on small print)."""
+    rgba = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+    h, w = rgba.shape[:2]
+    data = NSData.dataWithBytes_length_(rgba.tobytes(), rgba.nbytes)
+    provider = Quartz.CGDataProviderCreateWithCFData(data)
+    return Quartz.CGImageCreate(
+        w, h, 8, 32, w * 4, Quartz.CGColorSpaceCreateDeviceRGB(),
+        Quartz.kCGImageAlphaNoneSkipLast, provider, None, False,
+        Quartz.kCGRenderingIntentDefault,
+    )
+
+
 def recognize_text(image: np.ndarray, fast: bool = False) -> List[TextLine]:
     """Find and read every line of text in a BGR image, in reading order."""
     h, w = image.shape[:2]
-    ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])
-    if not ok:
-        return []
 
     # Vision objects are autoreleased; drain them every call so a live loop
     # doesn't slowly grow memory.
     with objc.autorelease_pool():
-        data = NSData.dataWithBytes_length_(buf.tobytes(), len(buf))
-        handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(data, None)
+        handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(_to_cgimage(image), None)
 
         request = Vision.VNRecognizeTextRequest.alloc().init()
         request.setRecognitionLevel_(
@@ -88,7 +99,7 @@ def find_text_region(image: np.ndarray, min_chars: int = 8) -> Tuple[Optional[Bo
     or (None, lines) when there are fewer than `min_chars` letters/digits.
     """
     lines = [l for l in recognize_text(image, fast=True)
-             if len(re.sub(r"[^0-9A-Za-z\u0080-￿]", "", l.text)) >= 2]
+             if len(re.sub(r"[^0-9A-Za-z\u0080-\uffff]", "", l.text)) >= 2]
     chars = sum(len(re.sub(r"\s", "", l.text)) for l in lines)
     if chars < min_chars:
         return None, lines
@@ -103,11 +114,3 @@ def read_text(image: np.ndarray) -> str:
     """Accurate read of all text, one line per detected line."""
     return "\n".join(l.text for l in recognize_text(image, fast=False) if l.text.strip())
 
-
-def scale_box(box: Box, sx: float, sy: float) -> Box:
-    return (int(box[0] * sx), int(box[1] * sy), int(box[2] * sx), int(box[3] * sy))
-
-
-def mirror_box(box: Box, width: int) -> Box:
-    """Flip a box horizontally, to draw it on a mirrored (selfie) preview."""
-    return (width - box[2], box[1], width - box[0], box[3])

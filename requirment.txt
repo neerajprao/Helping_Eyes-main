@@ -5,6 +5,7 @@ pillow==12.1.0
 
 # Text finding + reading (Apple Vision, macOS only)
 pyobjc-framework-Vision==12.2.2; sys_platform == "darwin"
+pyobjc-framework-Quartz==12.2.2; sys_platform == "darwin"
 
 # Gemini reader (assitant.py)
 google-generativeai==0.8.6
