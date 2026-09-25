@@ -10,6 +10,9 @@ pyobjc-framework-Quartz==12.2.2; sys_platform == "darwin"
 # Questions about the captured text: local Qwen via Ollama's HTTP API
 requests==2.34.2
 
+# Optional web lookup when the text doesn't have the answer (DuckDuckGo, no API key)
+ddgs==9.16.0
+
 # Gemini reader (assitant.py)
 google-generativeai==0.8.6
 

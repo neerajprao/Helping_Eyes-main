@@ -47,6 +47,7 @@ Core capabilities:
   - **"Read only the dosage"** — reads just the requested parts.
   - **"When does it expire?"**, **"Is this safe for children?"** — answers questions about the text.
 - Answers come from a local **Qwen 2.5 7B Instruct** model (via Ollama) and are spoken aloud, sentence by sentence.
+- When the text doesn't have the answer, it offers to **look it up online** — and only searches if the user says yes.
 
 Everything except voice recognition runs on the Mac itself.
 
@@ -76,6 +77,8 @@ flowchart LR
     R -- read everything --> S[Speak the full text]
     R -- read a part /<br/>ask a question --> Q[Qwen 2.5 7B Instruct<br/>via Ollama]
     Q --> T[Speak the answer<br/>sentence by sentence]
+    Q -- not in the text --> O{Should I look<br/>it up online?}
+    O -- yes --> W[DuckDuckGo search] --> Q2[Qwen answers from<br/>web results] --> T
 ```
 
 ---
@@ -93,6 +96,7 @@ flowchart LR
 | Voice Input | SpeechRecognition (Google) | Turns the user's spoken request into text; the terminal also accepts typed requests |
 | Understanding | Qwen 2.5 7B Instruct via Ollama (`doc_assistant.py`) | Reads requested parts or answers questions, using only the captured text |
 | Expiry Checks | `doc_assistant.py` | Expiry dates are compared with today's date in code, not by the model |
+| Web Lookup | DuckDuckGo (`ddgs`) + Qwen | Only after the user agrees; answers start with "According to the web" |
 | Text-to-Speech | macOS `say` (`speech.py`) | Speaks each sentence as soon as the model produces it |
 
 ---
@@ -102,7 +106,7 @@ flowchart LR
 ```
 Helping_Eyes-main/
 ├── smart_reader.py     # Main app: camera, guidance, capture, voice/typed requests
-├── doc_assistant.py    # Qwen 2.5 7B (Ollama): answers questions, reads parts, expiry-date checks
+├── doc_assistant.py    # Qwen 2.5 7B (Ollama): answers questions, reads parts, expiry checks, web lookup
 ├── text_vision.py      # Apple Vision: find text live (fast) and read it (accurate)
 ├── speech.py           # Queued, interruptible text-to-speech (macOS `say`)
 ├── assitant.py         # Alternative reader: Apple Vision finds text, Gemini reads it all aloud
@@ -114,7 +118,7 @@ Helping_Eyes-main/
 | File | Key pieces |
 |---|---|
 | `smart_reader.py` | `handle_request()` routes each request (app command, read everything, or the model) · `capture_document()` stores the captured text · `voice_listener()` / `typed_listener()` take requests · `BackgroundFrameReader` keeps the newest camera frame |
-| `doc_assistant.py` | `DocAssistant.set_document()` / `ask()` (streams the answer sentence by sentence) · `wants_read_all()` spots "read it all" requests · `expiry_checks()` works out whether expiry dates have passed |
+| `doc_assistant.py` | `DocAssistant.set_document()` / `ask()` (streams the answer sentence by sentence) · `ask_web()` searches and answers from the results · `wants_read_all()` spots "read it all" requests · `expiry_checks()` works out whether expiry dates have passed · `web_lookup_allowed()` blocks lookups for expiry, batch and price |
 | `text_vision.py` | `find_text_region()` for live detection · `read_text()` for the full capture |
 | `speech.py` | `Speaker.say()` / `stop()` · `spoke_since()` stops the microphone from hearing the app's own voice |
 
@@ -137,6 +141,7 @@ Helping_Eyes-main/
 |---|---|
 | Apple Vision (`pyobjc-framework-Vision`) | On-device text detection and recognition |
 | Ollama + `qwen2.5:7b-instruct` | Local language model that answers questions about the text |
+| `ddgs` (DuckDuckGo) | Web search, only when the user agrees; no account or API key |
 | OpenCV | Camera capture and on-screen overlays |
 | SpeechRecognition + PyAudio | Spoken requests |
 | `speech.py` | Text-to-speech using the macOS `say` command |
@@ -221,6 +226,9 @@ python assitant.py
 | "Read only the directions", "read the ingredients" | Reads just those parts |
 | Any question: "When does it expire?", "How much does it cost?", "Can children take this?" | Qwen answers from the captured text |
 | Follow-ups: "And how often?" | Qwen remembers the last few questions about the same item |
+| "Yes" / "no" after *"Should I look it up online?"* | Searches the web, or doesn't |
+| "Look it up", "search online" | Searches the web for your last question |
+| "Look up tartrazine allergy", "search the web for …" | Searches the web for exactly that |
 | "Repeat" | Repeats the last answer |
 | "Stop" | Stops speaking |
 | "Next", "new page", "scan again" | Get ready to capture a new item |
@@ -252,6 +260,7 @@ Measured on an Apple Silicon Mac:
 | Capture a full label (Apple Vision, accurate mode) | ~0.1–0.2 s |
 | First spoken sentence of an answer (Qwen 2.5 7B) | ~0.5–1.5 s |
 | "Read everything" | instant (no model involved) |
+| Web lookup (search + answer) | ~5–9 s |
 
 ---
 
@@ -276,6 +285,7 @@ Apple Vision reads the text and a local Qwen model answers questions on the Mac 
 - **Everything in view is captured:** background text (keyboard keys, a screen) can end up in the capture. Hold the item close so it fills the view.
 - **Moving to a new item:** a new capture happens only after the text leaves the view for a moment, or after `r` / "next".
 - **OCR mistakes:** small, curved, shiny or blurry print can be misread, and the model's answer can only be as good as the captured text.
+- **Web lookups:** only the search query (your question plus the product name) leaves the Mac; the captured text is not sent. Web answers are only as good as the search results, and lookups are never offered for expiry, batch or price, which only the item itself can tell you.
 - **Model answers can be wrong:** Qwen is told to use only the captured text, but a 7B model can still misread or mix up details. Check anything medically important with a pharmacist or doctor.
 
 ---
@@ -297,6 +307,8 @@ Apple Vision reads the text and a local Qwen model answers questions on the Mac 
 | Issue | Solution |
 |---|---|
 | "I can't reach the language model" | Open the Ollama app (or run `ollama serve`) and check `ollama list` shows `qwen2.5:7b-instruct`. |
+| "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo sometimes rate-limits; wait a minute and try again. |
+| It never offers to look things up | The offer only comes when the answer isn't in the text, and never for expiry, batch or price. You can always say "look it up". |
 | First answer is slow | The model loads at start-up; the first answer after a long idle may take a few seconds. |
 | `Cannot open webcam` | Close other apps using the camera (FaceTime, Zoom, Photo Booth). Try the other `CAMERA_INDEX` (`0` or `1`). |
 | Wrong camera opens | Swap `CAMERA_INDEX` between `0` and `1`. An iPhone nearby can also appear as a camera (Continuity Camera). |

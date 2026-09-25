@@ -16,7 +16,7 @@ load_dotenv()  # before importing modules that read settings from .env
 
 from speech import Speaker
 from text_vision import find_text_region, read_text
-from doc_assistant import DocAssistant, READ_ALL, LLM_MODEL, wants_read_all
+from doc_assistant import DocAssistant, READ_ALL, LLM_MODEL, wants_read_all, web_lookup_allowed
 
 # ================= LOGGING =================
 logging.basicConfig(
@@ -24,6 +24,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+# The web-search library logs every request it makes; keep the console readable
+for noisy in ("ddgs", "primp", "httpx"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 # ================= CONFIG =================
 # 0 = first camera macOS lists (a plugged-in USB camera usually comes first)
@@ -62,18 +65,42 @@ _running = True
 _thinking = False          # the model is working on an answer
 _rearm_requested = False   # user asked for a new capture
 _last_answer = ""          # for "repeat"
+_last_question = ""        # for "look it up"
+_pending_search = ""       # question waiting for a yes/no to "Should I look it up online?"
 _requests: "queue.Queue[str]" = queue.Queue()
 
 # Short spoken commands handled by the app itself, not the model
 _STOP = re.compile(r"^(stop|stop (it|talking|speaking|reading)|be quiet|quiet|shut up|cancel)[.!]*$")
 _REPEAT = re.compile(r"^(repeat|repeat that|say (that|it) again|again|pardon|what)[.?!]*$")
 _NEW_CAPTURE = re.compile(r"^(next|next page|new page|scan( again)?|capture( again)?|read something else|new (text|item|document))[.!]*$")
+_YES = re.compile(r"^(yes|yeah|yep|yup|sure|ok|okay|please|please do|do it|go ahead|yes please|look it up|search)[.!]*$")
+_NO = re.compile(r"^(no|nope|nah|no thanks|no thank you|don't|never mind|leave it)[.!]*$")
+# "look it up", "search online", "google that" -> web search for the last question
+_SEARCH_LAST = re.compile(r"^(please )?(look (it|that) up|search|google)( (it|that))?( (online|on the internet|on the web|the web|the internet))?( please)?[.!]*$")
+# "search the web for X", "look up X", "google X" -> web search for X
+_SEARCH_FOR = re.compile(r"^(?:please )?(?:search (?:the web |online |the internet )?for|look up|google) (.+?)[.?!]*$")
 
 def request_new_capture() -> None:
-    global _rearm_requested
+    global _rearm_requested, _pending_search
     stop_speech()
+    _pending_search = ""
     _rearm_requested = True
     speak("Okay. Show me the next thing.")
+
+def web_answer(question: str) -> None:
+    """Search the web for the question and speak the answer"""
+    global _thinking, _last_answer
+    speak("Let me look that up.")
+    _thinking = True
+    answer = []
+    try:
+        for sentence in doc.ask_web(question):
+            answer.append(sentence)
+            speak(sentence)
+    finally:
+        _thinking = False
+    if answer:
+        _last_answer = " ".join(answer)
 
 def speak_document() -> None:
     """Read everything Apple Vision captured, exactly as captured"""
@@ -83,14 +110,26 @@ def speak_document() -> None:
 
 # ================= REQUEST HANDLING =================
 def handle_request(text: str) -> None:
-    """Route one spoken or typed request: app command, read-all, or the model"""
-    global _thinking, _last_answer
+    """Route one spoken or typed request: app command, web lookup, read-all, or the model"""
+    global _thinking, _last_answer, _last_question, _pending_search
 
     request = text.strip()
     lower = request.lower()
     if not request:
         return
     print(f"🙋 {request}")
+
+    # Answer to "Should I look it up online?"
+    pending, _pending_search = _pending_search, ""
+    if pending:
+        if _YES.match(lower):
+            stop_speech()
+            web_answer(pending)
+            return
+        if _NO.match(lower):
+            speak("Okay.")
+            return
+        # Anything else is a new request; the offer is dropped
 
     if _STOP.match(lower):
         stop_speech()
@@ -103,6 +142,16 @@ def handle_request(text: str) -> None:
         request_new_capture()
         return
 
+    m = _SEARCH_FOR.match(lower)
+    if m or _SEARCH_LAST.match(lower):
+        question = m.group(1) if m else _last_question
+        stop_speech()
+        if question:
+            web_answer(question)
+        else:
+            speak("What should I look up?")
+        return
+
     if not doc.has_document():
         speak("I haven't captured any text yet. Hold something up to the camera.")
         return
@@ -113,6 +162,7 @@ def handle_request(text: str) -> None:
         speak_document()
         return
 
+    _last_question = request
     _thinking = True
     answer = []
     try:
@@ -126,6 +176,12 @@ def handle_request(text: str) -> None:
         _thinking = False
     if answer:
         _last_answer = " ".join(answer)
+
+    # The text didn't have it: offer to look it up (never for expiry, batch or
+    # price, which only the item itself can tell you)
+    if doc.last_not_in_text and web_lookup_allowed(request):
+        _pending_search = request
+        speak("Should I look it up online?")
 
 def request_worker() -> None:
     """Handles requests one at a time, off the camera loop"""
@@ -319,7 +375,9 @@ def capture_document(frame: np.ndarray) -> bool:
     if not text.strip():
         return False
 
+    global _pending_search
     stop_speech()
+    _pending_search = ""
     doc.set_document(text)
     logger.info(f"📖 Captured {len(text)} characters:\n{text}")
     speak("Got it. What would you like to know? You can also say, read everything.")
