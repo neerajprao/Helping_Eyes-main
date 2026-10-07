@@ -44,10 +44,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from book_mode import read_page
 from commands import classify
 from doc_assistant import LLM_MODEL, OLLAMA_HOST, READ_ALL, DocAssistant, web_lookup_allowed
-from live import BookReader, BookWatcher, LiveGuide
+from vision import BookReader, BookWatcher, LiveGuide, read_page
 from text_vision import OCR_ENGINE, find_text_region, read_text_enhanced
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

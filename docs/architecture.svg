@@ -1,106 +1,96 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="900" viewBox="0 0 1700 900" font-family="Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="930" viewBox="0 0 1500 930" font-family="Helvetica, Arial, sans-serif">
 <defs><marker id="a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#374151"/></marker></defs>
-<rect width="1700" height="900" fill="#ffffff"/>
-<text x="850" y="42" text-anchor="middle" font-size="28" font-weight="700" fill="#111827">Helping Eyes: system architecture</text>
-<rect x="30" y="70" width="480" height="640" rx="14" fill="#eff6ff" stroke="#9ca3af"/>
-<text x="270.0" y="100" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Browser  (web/app.js)</text>
-<rect x="570" y="70" width="550" height="640" rx="14" fill="#fff7ed" stroke="#9ca3af"/>
-<text x="845.0" y="100" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Server  (server.py, FastAPI)</text>
-<rect x="1180" y="70" width="490" height="640" rx="14" fill="#f0fdf4" stroke="#9ca3af"/>
-<text x="1425.0" y="100" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Engines  (shared modules)</text>
-<rect x="60" y="120" width="420" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="270.0" y="150.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Camera</text>
-<text x="270.0" y="170.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">getUserMedia, rear camera</text>
-<rect x="60" y="215" width="420" height="85" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="270.0" y="242.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Overlay canvas</text>
-<text x="270.0" y="262.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">guide box, text lines, page layout,</text>
-<text x="270.0" y="282.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">reading highlight on the line and word</text>
-<rect x="60" y="325" width="420" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="270.0" y="355.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Speech in</text>
-<text x="270.0" y="375.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">SpeechRecognition, hands-free, echo guard</text>
-<rect x="60" y="420" width="420" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="270.0" y="450.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Speech out</text>
-<text x="270.0" y="470.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">speechSynthesis, word position while reading</text>
-<rect x="60" y="515" width="420" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="270.0" y="545.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Typed input and keys</text>
-<text x="270.0" y="565.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">C capture, R new item, B book, A read, S stop</text>
-<rect x="600" y="120" width="490" height="70" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="150.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">WS /ws/live</text>
-<text x="845.0" y="170.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">preview frames in, guidance and page turns out</text>
-<rect x="600" y="210" width="490" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="235.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">POST /api/capture</text>
-<text x="845.0" y="255.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">full photo to text kept for questions</text>
-<rect x="600" y="290" width="490" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="315.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">POST /api/book/page</text>
-<text x="845.0" y="335.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">full photo of a book view: read it, resume, or keep</text>
-<rect x="600" y="370" width="490" height="70" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="400.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">POST /api/ask</text>
-<text x="845.0" y="420.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">one request: command, answer or web lookup (NDJSON)</text>
-<rect x="600" y="465" width="490" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="490.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">commands.py</text>
-<text x="845.0" y="510.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">classify(): stop, repeat, next, book mode, yes/no, search</text>
-<rect x="600" y="545" width="490" height="95" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="577.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">live.py</text>
-<text x="845.0" y="597.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">LiveGuide: hints, hold still, auto-capture, quality coaching</text>
-<text x="845.0" y="617.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">BookWatcher: page turns   BookReader: new page / resume</text>
-<rect x="600" y="655" width="490" height="40" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="845.0" y="680.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Session per browser: item, conversation, book state (30 min)</text>
-<rect x="1210" y="120" width="430" height="70" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
-<text x="1425.0" y="150.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">page_enhance.py</text>
-<text x="1425.0" y="170.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">blur/glare score, flatten, dewarp, CLAHE</text>
-<rect x="1210" y="215" width="430" height="70" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
-<text x="1425.0" y="245.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">text_vision.py</text>
-<text x="1425.0" y="265.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">OCR: Apple Vision (Mac) or RapidOCR (cloud)</text>
-<rect x="1210" y="310" width="430" height="80" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
-<text x="1425.0" y="345.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">book_mode.py</text>
-<text x="1425.0" y="365.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">spine split, page numbers, XY-cut, PageLayout</text>
-<rect x="1210" y="420" width="430" height="120" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
-<text x="1425.0" y="455.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">doc_assistant.py: DocAssistant</text>
-<text x="1425.0" y="475.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">grounded Q&amp;A, history, NOT_IN_TEXT tag</text>
-<text x="1425.0" y="495.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">expiry and page answers computed in code</text>
-<text x="1425.0" y="515.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">read-all handled without the model</text>
-<text x="1425" y="585" text-anchor="middle" font-size="13" fill="#374151">Qwen answers only from the captured text</text>
-<rect x="1210" y="790" width="200" height="70" rx="8" fill="#fefce8" stroke="#a16207" stroke-width="1.5"/>
-<text x="1310.0" y="820.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Ollama</text>
-<text x="1310.0" y="840.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">Qwen 2.5 7B / 3B</text>
-<rect x="1440" y="790" width="200" height="70" rx="8" fill="#fefce8" stroke="#a16207" stroke-width="1.5"/>
-<text x="1540.0" y="820.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">DuckDuckGo</text>
-<text x="1540.0" y="840.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">search query only</text>
-<rect x="60" y="790" width="300" height="70" rx="8" fill="#fefce8" stroke="#a16207" stroke-width="1.5"/>
-<text x="210.0" y="820.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Google speech service</text>
-<text x="210.0" y="840.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">used by the browser (needs internet)</text>
-<rect x="600" y="780" width="490" height="90" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/>
-<text x="845.0" y="810.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Same code, two ways to run</text>
-<text x="845.0" y="830.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">Mac: localhost, Apple Vision, Qwen 7B</text>
-<text x="845.0" y="850.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">Cloud: Hugging Face Space, RapidOCR, Qwen 3B</text>
-<text x="850" y="765" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">External services and deployment</text>
-<path d="M480,150 L600,150" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="540" y="140" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">preview frames</text>
-<path d="M600,168 L480,245" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="528" y="262" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">guide, page turns</text>
-<path d="M480,182 L600,232" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="566" y="208" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">full photo</text>
-<path d="M480,350 L600,395" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="545" y="368" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">request</text>
-<path d="M600,420 L480,450" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="548" y="448" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">sentences</text>
-<path d="M600,330 L480,465" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="520" y="355" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">text to speak</text>
-<path d="M480,550 L600,420" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M845,465 L845,440" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1090,150 L1210,245" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="1150" y="190" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">fast detect</text>
-<path d="M1090,240 L1210,255" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="1150" y="228" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">accurate read</text>
-<path d="M1090,320 L1210,350" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1090,405 L1210,470" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1425,190 L1425,215" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1425,285 L1425,310" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1425,390 L1425,420" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<path d="M1310,540 L1310,790" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="1310" y="700" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">chat stream</text>
-<path d="M1540,540 L1540,790" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="1540" y="700" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">consented search</text>
-<path d="M60,360 L44,360 L44,825 L60,825" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
-<text x="44" y="600" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">audio</text>
+<rect width="1500" height="930" fill="#ffffff"/>
+<text x="750" y="42" text-anchor="middle" font-size="28" font-weight="700" fill="#111827">Helping Eyes: life cycle of a request</text>
+<rect x="30" y="70" width="700" height="675" rx="14" fill="#eff6ff" stroke="#9ca3af"/>
+<text x="380.0" y="98" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Camera path</text>
+<rect x="770" y="70" width="700" height="675" rx="14" fill="#fff7ed" stroke="#9ca3af"/>
+<text x="1120.0" y="98" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Voice / typing path</text>
+<rect x="210" y="105" width="320" height="50" rx="8" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="370.0" y="135.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">INPUT 1: camera pictures</text>
+<rect x="210" y="195" width="320" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="370.0" y="225.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part C (the coach)</text>
+<text x="370.0" y="245.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">looks for text, checks blur and glare</text>
+<rect x="45" y="200" width="140" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="115.0" y="215.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Hint</text>
+<text x="115.0" y="235.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">move closer, left,</text>
+<text x="115.0" y="255.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">hold still</text>
+<rect x="160" y="330" width="240" height="50" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="280.0" y="350.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Full photo</text>
+<text x="280.0" y="370.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">normal mode: text is steady</text>
+<rect x="160" y="420" width="240" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="280.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part A</text>
+<text x="280.0" y="465.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">fix tilt, glare, shadows</text>
+<rect x="160" y="520" width="240" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="280.0" y="545.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">text_vision.py</text>
+<text x="280.0" y="565.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">picture to text</text>
+<rect x="440" y="330" width="260" height="50" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="570.0" y="350.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Full photo of the page</text>
+<text x="570.0" y="370.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">book mode: a page was turned</text>
+<rect x="440" y="420" width="260" height="100" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="570.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part B (book mode)</text>
+<text x="570.0" y="465.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">split the two pages, find the page number,</text>
+<text x="570.0" y="485.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">order the paragraphs</text>
+<text x="570.0" y="505.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">(uses the same fixer and reader)</text>
+<rect x="440" y="550" width="260" height="55" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="570.0" y="572.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Page text</text>
+<text x="570.0" y="592.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">+ where each word is</text>
+<rect x="210" y="665" width="320" height="60" rx="8" fill="#e0e7ff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="370.0" y="690.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Captured text</text>
+<text x="370.0" y="710.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">saved for questions</text>
+<rect x="800" y="105" width="290" height="50" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
+<text x="945.0" y="135.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">INPUT 2: your voice or typing</text>
+<rect x="800" y="195" width="290" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="945.0" y="230.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Browser: speech to text</text>
+<rect x="800" y="285" width="290" height="70" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="945.0" y="315.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">commands.py</text>
+<text x="945.0" y="335.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">command or question?</text>
+<rect x="1180" y="295" width="260" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="1310.0" y="320.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Do it</text>
+<text x="1310.0" y="340.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">stop, repeat, next, book mode</text>
+<rect x="800" y="420" width="290" height="90" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="945.0" y="460.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">doc_assistant.py + Qwen AI</text>
+<text x="945.0" y="480.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">answers only from the saved text</text>
+<rect x="1180" y="420" width="260" height="90" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="1310.0" y="450.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">DuckDuckGo search</text>
+<text x="1310.0" y="470.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">then Qwen answers from</text>
+<text x="1310.0" y="490.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">the results</text>
+<rect x="800" y="575" width="640" height="55" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
+<text x="1120.0" y="607.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Answer, sentence by sentence</text>
+<rect x="30" y="800" width="1440" height="95" rx="8" fill="#dcfce7" stroke="#15803d" stroke-width="1.5"/>
+<text x="750.0" y="842.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">OUTPUT: spoken aloud and shown on screen</text>
+<text x="750.0" y="862.5" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">(book mode also highlights the word being read)</text>
+<path d="M370,155 L370,195" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M210,230 L185,230" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M370,265 L280,330" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="300" y="298" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">normal</text>
+<path d="M370,265 L570,330" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="500" y="298" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">book mode</text>
+<path d="M280,380 L280,420" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M280,480 L280,520" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M570,380 L570,420" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M440,450 L400,450" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<text x="420" y="440" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">uses</text>
+<path d="M440,495 L400,540" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<path d="M570,520 L570,550" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M280,580 L300,665" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M570,605 L470,665" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M115,260 L115,800" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M700,578 L750,578 L750,800" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="716" y="640" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">read the page</text>
+<path d="M945,155 L945,195" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M945,255 L945,285" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M945,355 L945,420" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="985" y="392" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">question</text>
+<path d="M1090,325 L1180,325" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="1135" y="316" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">command</text>
+<path d="M1440,325 L1458,325 L1458,800" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M1090,465 L1180,465" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="1135" y="452" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">not in text + yes</text>
+<path d="M945,510 L945,575" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="1030" y="548" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">answer is in the text</text>
+<path d="M1310,510 L1310,575" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M1120,630 L1120,800" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M530,695 L780,695 L780,470 L800,470" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="655" y="685" text-anchor="middle" font-size="12" fill="#374151" stroke="#fff" stroke-width="4" paint-order="stroke">saved text</text>
 </svg>

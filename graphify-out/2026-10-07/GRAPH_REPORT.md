@@ -1,13 +1,13 @@
-# Graph Report - Helping_Eyes-main  (2026-09-28)
+# Graph Report - Helping_Eyes-main  (2026-10-07)
 
 ## Corpus Check
-- 19 files · ~45,130 words
+- 16 files · ~48,838 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 7 file(s) not represented in the graph (top: (none) 4, .pptx 1, .example 1)
+- Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .example 1, .css 1)
 
 ## Summary
-- 620 nodes · 1129 edges · 26 communities (23 shown, 3 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 14 edges (avg confidence: 0.83)
+- 445 nodes · 857 edges · 32 communities (10 shown, 22 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 21 edges (avg confidence: 0.91)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
@@ -16,56 +16,62 @@
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- assitant.py
-- Helping Eyes: Presentation Script (CS3235 review)
-- laptop_version/page_enhance.py
-- laptop_version/text_vision.py
-- web_version/page_enhance.py
+- live.py
+- Helping Eyes — project overview
+- page_enhance.py
+- text_vision.py
+- test_live.py
 - server.py
-- smart_reader.py
-- Speaker
-- DocAssistant
-- DocAssistant
+- ambiguous_python_import_0d57e9c79602
 - app.js
-- laptop_version/book_mode.py
-- web_version/book_mode.py
-- ndarray
-- ndarray
-- split_page_parts
-- split_page_parts
-- _read_flat_page
-- _read_flat_page
-- PageLayout
-- PageLayout
-- find_book
-- find_book
+- classify
+- test_server.py
 - deploy_space.sh
+- book_mode.py
+- ambiguous_python_import_c4903fb5325b
 - README.md
 - start.sh
+- ambiguous_python_import_12748383589a
+- ambiguous_python_import_15fab9ae6755
+- ambiguous_python_import_3a41de599dc0
+- ambiguous_python_import_7b0d469555d8
+- ambiguous_python_import_8a1e897c40b2
+- ambiguous_python_import_a9379122aa73
+- ambiguous_python_import_bc0bdfed81b6
+- ambiguous_python_import_e493a3900412
+- ambiguous_python_import_e619e6356f81
+- ambiguous_python_import_eadc95eef474
+- google_generativeai
+- pil
+- queue
+- select
+- shutil
+- speech_recognition
+- subprocess
 
 ## God Nodes (most connected - your core abstractions)
-1. `Helping Eyes: Presentation Script (CS3235 review)` - 23 edges
-2. `main()` - 17 edges
-3. `Helping Eyes — project overview` - 16 edges
-4. `Speaker` - 15 edges
-5. `DocAssistant` - 13 edges
-6. `make_page()` - 13 edges
-7. `DocAssistant` - 13 edges
-8. `make_page()` - 13 edges
-9. `assess_quality()` - 12 edges
-10. `estimate_dewarp()` - 12 edges
+1. `DocAssistant` - 25 edges
+2. `PageLayout` - 17 edges
+3. `guide_with()` - 17 edges
+4. `LiveGuide` - 15 edges
+5. `assess_quality()` - 15 edges
+6. `_read_flat_page()` - 14 edges
+7. `QualityReport` - 14 edges
+8. `TextLine` - 14 edges
+9. `Helping Eyes — project overview` - 14 edges
+10. `PageTurnDetector` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `VizWiz (Bigham et al., UIST 2010)` --semantically_similar_to--> `Helping Eyes — project overview`  [INFERRED] [semantically similar]
-  Helping_Eyes_Presentation_Script.pdf → README.md
-- `Problem statement (presentation slide 7)` --conceptually_related_to--> `Problem Statement (README)`  [INFERRED]
-  Helping_Eyes_Presentation_Script.pdf → README.md
 - `Book Reading Mode (computer vision pipeline)` --references--> `Book mode overlay screenshot (spine, page numbers, paragraph order)`  [EXTRACTED]
   README.md → docs/book_mode_overlay.jpg
-- `Lewis et al. — retrieval-augmented generation` --conceptually_related_to--> `Optional consent-based web lookup (DuckDuckGo)`  [INFERRED]
-  Helping_Eyes_Presentation_Script.pdf → README.md
-- `Smith 2007 — Tesseract OCR engine` --conceptually_related_to--> `OCR engine selection: Apple Vision vs RapidOCR`  [INFERRED]
-  Helping_Eyes_Presentation_Script.pdf → README.md
+- `Reading position highlight (word-level TTS tracking)` --references--> `Book mode reading highlight screenshot (line/word tracking)`  [EXTRACTED]
+  README.md → docs/book_mode_highlight.jpg
+- `BookWatcher` --uses--> `PageTurnDetector`  [INFERRED]
+  helping_eyes/live.py → helping_eyes/book_mode.py
+- `_rows()` --uses--> `TextLine`  [INFERRED]
+  helping_eyes/book_mode.py → helping_eyes/text_vision.py
+- `split_page_parts()` --uses--> `TextLine`  [INFERRED]
+  helping_eyes/book_mode.py → helping_eyes/text_vision.py
 
 ## Import Cycles
 - None detected.
@@ -73,121 +79,68 @@
 ## Hyperedges (group relationships)
 - **Book mode reading pipeline stages** — readme_page_turn_detection, readme_spine_detection, readme_reading_order_xycut, readme_reading_position_highlight, readme_continuing_after_move [EXTRACTED 0.95]
 - **Helping Eyes core innovations** — readme_question_driven_reading, readme_text_detection_vs_object_detection, readme_grounded_ondevice_answers, readme_handsfree_book_reading [EXTRACTED 0.95]
-- **Shared literature citations between README and presentation script** — readme_ref_gawande2023, readme_ref_smartreader_apsit2025, readme_ref_sharma2014_ocr_tts, helping_eyes_presentation_script_pdf_gawande2023, helping_eyes_presentation_script_pdf_smartreader_apsit2025, helping_eyes_presentation_script_pdf_sharma2014 [INFERRED 0.85]
 
-## Communities (26 total, 3 thin omitted)
+## Communities (32 total, 22 thin omitted)
 
-### Community 0 - "assitant.py"
+### Community 0 - "live.py"
 Cohesion: 0.06
-Nodes (51): ambiguous_python_import_a9379122aa73, calendar, datetime, dotenv, google_generativeai, json, analyze_image(), extract_new_text() (+43 more)
+Nodes (26): continue_from(), (start, end, normalised word) for each word, ignoring punctuation-only tokens., Compare the page being read with a new view of it. old_pos is how far reading…, _words(), BookReader, BookWatcher, layout_json(), LiveGuide (+18 more)
 
-### Community 1 - "Helping Eyes: Presentation Script (CS3235 review)"
-Cohesion: 0.05
-Nodes (47): Book mode reading highlight screenshot (line/word tracking), Book mode overlay screenshot (spine, page numbers, paragraph order), CI health-check workflow (web version), Cutter & Manduchi — spoken guidance for document capture, Ezaki, Bulacu & Schomaker 2004 — scene text detection, FingerReader (Shilkrot et al., CHI 2015), Gawande et al. 2023 — ML-based TTS device, Gonzalez Penuela et al., CHI 2024 — diary study of MLLM reading app (+39 more)
+### Community 1 - "Helping Eyes — project overview"
+Cohesion: 0.09
+Nodes (24): Book mode reading highlight screenshot (line/word tracking), Book mode overlay screenshot (spine, page numbers, paragraph order), CI health-check workflow (web version), Book Reading Mode (computer vision pipeline), Continuing after the view moves (continue_from), Optional consent-based web lookup (DuckDuckGo), Grounded, on-device answers (innovation), Hands-free book reading (innovation) (+16 more)
 
-### Community 2 - "laptop_version/page_enhance.py"
+### Community 2 - "page_enhance.py"
+Cohesion: 0.07
+Nodes (60): _analysis_gray(), _apply_shift(), assess_quality(), _best_lag(), binarize(), capture_candidates(), dewarp(), DewarpModel (+52 more)
+
+### Community 3 - "text_vision.py"
+Cohesion: 0.14
+Nodes (25): foundation, work(), find_text_region(), Box, ndarray, _quad_to_box(), Text finding and reading. Two OCR engines with the same interface: apple…, Find and read every line of text in a BGR image. word_boxes=True also records… (+17 more)
+
+### Community 4 - "test_live.py"
 Cohesion: 0.06
-Nodes (62): _analysis_gray(), _apply_shift(), assess_quality(), _best_lag(), binarize(), capture_candidates(), dewarp(), DewarpModel (+54 more)
-
-### Community 3 - "laptop_version/text_vision.py"
-Cohesion: 0.08
-Nodes (46): cv2, dataclasses, foundation, find_text_region(), Box, ndarray, _quad_to_box(), Text finding and reading. Two OCR engines with the same interface: apple… (+38 more)
-
-### Community 4 - "web_version/page_enhance.py"
-Cohesion: 0.06
-Nodes (62): _analysis_gray(), _apply_shift(), assess_quality(), _best_lag(), binarize(), capture_candidates(), dewarp(), DewarpModel (+54 more)
+Nodes (37): PageInfo, What a printed page says about itself., DocAssistant, DuckDuckGo text search: [{title, href, body}, ...]. Only the query leaves the…, Keeps the captured text plus the conversation about it., New capture: replace the text and forget the previous conversation. facts: page…, Same item, slightly different view: replace the text but keep the conversation., Stop any answer currently being generated. (+29 more)
 
 ### Community 5 - "server.py"
-Cohesion: 0.08
-Nodes (37): ambiguous_python_import_3a41de599dc0, ambiguous_python_import_7b0d469555d8, ambiguous_python_import_8a1e897c40b2, BaseModel, fastapi, fastapi_responses, fastapi_staticfiles, FileResponse (+29 more)
+Cohesion: 0.05
+Nodes (61): BaseModel, calendar, date, datetime, dotenv, fastapi, fastapi_concurrency, fastapi_responses (+53 more)
 
-### Community 6 - "smart_reader.py"
-Cohesion: 0.06
-Nodes (41): ambiguous_python_import_0d57e9c79602, ambiguous_python_import_15fab9ae6755, ambiguous_python_import_bc0bdfed81b6, ambiguous_python_import_eadc95eef474, BackgroundFrameReader, capture_document(), handle_request(), main() (+33 more)
+### Community 7 - "app.js"
+Cohesion: 0.10
+Nodes (42): answerEl, ask(), autoCapture(), bookTick(), cameraUnavailable(), COLORS, connectLive(), drawBook() (+34 more)
 
-### Community 7 - "Speaker"
-Cohesion: 0.11
-Nodes (11): _build_command(), Queue text to be spoken (non-blocking). track_from: for text taken from a…, Silence current speech and discard everything queued., Block until nothing is queued or playing. Returns False on timeout., Start `say --interactive` on a pseudo-terminal; returns (process, pty fd)., Read say's redraws until it finishes, updating `position` word by word., Return the TTS command for this OS. Text is always fed via stdin., Queued, interruptible speech. Utterances are spoken one at a time, in order. (+3 more)
-
-### Community 8 - "DocAssistant"
-Cohesion: 0.11
-Nodes (12): DocAssistant, DuckDuckGo text search: [{title, href, body}, ...]. Only the query leaves the…, Keeps the captured text plus the conversation about it., New capture: replace the text and forget the previous conversation. facts: page…, Same item, slightly different view: replace the text but keep the conversation., Stop any answer currently being generated., Load the model into memory so the first question isn't slow., Answer from the captured text, streamed sentence by sentence. Yields READ_ALL… (+4 more)
-
-### Community 9 - "DocAssistant"
-Cohesion: 0.11
-Nodes (12): DocAssistant, DuckDuckGo text search: [{title, href, body}, ...]. Only the query leaves the…, Keeps the captured text plus the conversation about it., New capture: replace the text and forget the previous conversation. facts: page…, Same item, slightly different view: replace the text but keep the conversation., Stop any answer currently being generated., Load the model into memory so the first question isn't slow., Answer from the captured text, streamed sentence by sentence. Yields READ_ALL… (+4 more)
-
-### Community 10 - "app.js"
-Cohesion: 0.20
-Nodes (19): answerEl, ask(), cameraUnavailable(), canvas, capture(), escapeHtml(), handleSpoken(), lastSentences (+11 more)
-
-### Community 11 - "laptop_version/book_mode.py"
-Cohesion: 0.14
-Nodes (16): ambiguous_python_import_12748383589a, ambiguous_python_import_e619e6356f81, collections, continue_from(), PageInfo, Book reading mode: the computer vision that decides WHEN to read a page, WHERE…, Start/end (exclusive) of each run of True values., How "busy" each x column is: the local standard deviation of brightness,… (+8 more)
-
-### Community 12 - "web_version/book_mode.py"
-Cohesion: 0.14
-Nodes (16): ambiguous_python_import_c4903fb5325b, ambiguous_python_import_e493a3900412, difflib, continue_from(), PageInfo, Book reading mode: the computer vision that decides WHEN to read a page, WHERE…, Start/end (exclusive) of each run of True values., How "busy" each x column is: the local standard deviation of brightness,… (+8 more)
-
-### Community 13 - "ndarray"
-Cohesion: 0.22
-Nodes (6): PageTurnDetector, ndarray, True (and remembered) when the page layout differs from the last page read., Watches the camera for a page turn. TURNING something is moving (a hand, a page…, Start over: the first steady page will be read., A small binary 'fingerprint' of the page layout: text lines appear as dark…
-
-### Community 14 - "ndarray"
-Cohesion: 0.22
-Nodes (6): PageTurnDetector, ndarray, True (and remembered) when the page layout differs from the last page read., Watches the camera for a page turn. TURNING something is moving (a hand, a page…, Start over: the first steady page will be read., A small binary 'fingerprint' of the page layout: text lines appear as dark…
-
-### Community 15 - "split_page_parts"
-Cohesion: 0.24
-Nodes (13): _median(), parse_page_number(), TextLine, Split a header/footer line into (page number, remaining title text). Handles…, Group lines that sit side by side (overlapping in y) into rows, top to bottom., Separate the page's header and footer from its body. A header (footer) is a row…, Recursive XY-cut, a classic document layout algorithm, run on the boxes of the…, _rows() (+5 more)
-
-### Community 16 - "split_page_parts"
-Cohesion: 0.24
-Nodes (13): _median(), parse_page_number(), TextLine, Split a header/footer line into (page number, remaining title text). Handles…, Group lines that sit side by side (overlapping in y) into rows, top to bottom., Separate the page's header and footer from its body. A header (footer) is a row…, Recursive XY-cut, a classic document layout algorithm, run on the boxes of the…, _rows() (+5 more)
-
-### Community 17 - "_read_flat_page"
+### Community 8 - "classify"
 Cohesion: 0.18
-Nodes (12): LineSpan, Where one printed line ended up in the page text, and where it is on screen., The same line with its boxes moved dx pixels to the right., Boxes found on a dewarped page image, mapped back onto the camera frame., read_page() on one image: split the spread, OCR each page, order the text (see…, Map a layout found on the flattened page back onto the camera frame (in place)., Split the spread, read each page with Apple Vision, separate headers and…, _read_flat_page() (+4 more)
+Nodes (16): dataclasses, classify(), Command, Spoken and typed commands handled by the application itself, not the model.…, name is one of: stop, repeat, book_off, book_on, new_capture, search_last,…, Decide what one request means. offer_pending is True right after the app asked…, True for plain "read it all" requests, so they skip the model entirely., wants_read_all() (+8 more)
 
-### Community 18 - "_read_flat_page"
-Cohesion: 0.18
-Nodes (12): LineSpan, Where one printed line ended up in the page text, and where it is on screen., The same line with its boxes moved dx pixels to the right., Boxes found on a dewarped page image, mapped back onto the camera frame., read_page() on one image: split the spread, OCR each page, order the text (see…, Map a layout found on the flattened page back onto the camera frame (in place)., Split the spread, read each page with Apple Vision, separate headers and…, _read_flat_page() (+4 more)
+### Community 9 - "test_server.py"
+Cohesion: 0.21
+Nodes (13): cv2, fastapi_testclient, ask(), label_jpeg(), Tests for server.py through its real HTTP and WebSocket interface. RapidOCR…, spoken(), test_asking_before_capturing(), test_book_page_endpoint_reads_a_page_and_resumes() (+5 more)
 
-### Community 19 - "PageLayout"
-Cohesion: 0.28
-Nodes (5): PageLayout, Everything found in one frame, in full-frame pixel coordinates (for drawing)., Printed page numbers, left to right. A missing number on one side of a spread…, Page 47', 'Pages 46 and 47', or '' when no number is printed., Page facts for the language model, so it can answer 'what page is this?'.
-
-### Community 20 - "PageLayout"
-Cohesion: 0.28
-Nodes (5): PageLayout, Everything found in one frame, in full-frame pixel coordinates (for drawing)., Printed page numbers, left to right. A missing number on one side of a spread…, Page 47', 'Pages 46 and 47', or '' when no number is printed., Page facts for the language model, so it can answer 'what page is this?'.
-
-### Community 21 - "find_book"
-Cohesion: 0.29
-Nodes (5): find_book(), Box, The open book = the bright (paper) regions: Otsu threshold on a blurred…, The printed line that contains character `pos` of the page text., Screen box of the word at character `pos` (or the next word on that line).
-
-### Community 22 - "find_book"
-Cohesion: 0.29
-Nodes (5): find_book(), Box, The open book = the bright (paper) regions: Otsu threshold on a blurred…, The printed line that contains character `pos` of the page text., Screen box of the word at character `pos` (or the next word on that line).
+### Community 11 - "book_mode.py"
+Cohesion: 0.05
+Nodes (50): collections, difflib, find_book(), LineSpan, _median(), PageLayout, PageTurnDetector, parse_page_number() (+42 more)
 
 ## Knowledge Gaps
-- **24 isolated node(s):** `start.sh script`, `video`, `canvas`, `statusEl`, `answerEl` (+19 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 264 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **3 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **23 isolated node(s):** `start.sh script`, `video`, `overlay`, `grab`, `statusEl` (+18 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 185 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Speaker` connect `Speaker` to `assitant.py`, `smart_reader.py`?**
-  _High betweenness centrality (0.053) - this node is a cross-community bridge._
-- **Why does `DocAssistant` connect `DocAssistant` to `assitant.py`?**
-  _High betweenness centrality (0.049) - this node is a cross-community bridge._
-- **Why does `DocAssistant` connect `DocAssistant` to `assitant.py`?**
-  _High betweenness centrality (0.049) - this node is a cross-community bridge._
-- **Are the 3 inferred relationships involving `main()` (e.g. with `request_worker()` and `typed_listener()`) actually correct?**
-  _`main()` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `start.sh script`, `video`, `canvas` to the rest of the system?**
-  _24 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `assitant.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.057912457912457915 - nodes in this community are weakly interconnected._
-- **Should `Helping Eyes: Presentation Script (CS3235 review)` be split into smaller, more focused modules?**
-  _Cohesion score 0.0545790934320074 - nodes in this community are weakly interconnected._
+- **Why does `DocAssistant` connect `test_live.py` to `live.py`, `text_vision.py`, `server.py`?**
+  _High betweenness centrality (0.078) - this node is a cross-community bridge._
+- **Why does `PageLayout` connect `book_mode.py` to `live.py`, `test_live.py`?**
+  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+- **Why does `PageTurnDetector` connect `book_mode.py` to `live.py`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **Are the 2 inferred relationships involving `DocAssistant` (e.g. with `Session` and `_warm_up()`) actually correct?**
+  _`DocAssistant` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 2 inferred relationships involving `PageLayout` (e.g. with `BookReader` and `layout_json()`) actually correct?**
+  _`PageLayout` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 2 inferred relationships involving `guide_with()` (e.g. with `assess()` and `detect()`) actually correct?**
+  _`guide_with()` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 2 inferred relationships involving `LiveGuide` (e.g. with `QualityReport` and `Session`) actually correct?**
+  _`LiveGuide` has 2 INFERRED edges - model-reasoned connections that need verification._

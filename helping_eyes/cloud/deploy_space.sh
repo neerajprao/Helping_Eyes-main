@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 assemble() {
     local out="$1"
     rm -rf "$out" && mkdir -p "$out"
-    cp "$ROOT"/{server.py,commands.py,live.py,doc_assistant.py,book_mode.py,text_vision.py,page_enhance.py,requirements.txt} "$out/"
+    cp "$ROOT"/{server.py,commands.py,vision.py,doc_assistant.py,text_vision.py,requirements.txt} "$out/"
     cp -R "$ROOT/web" "$out/web"
     cp "$ROOT"/cloud/{Dockerfile,start.sh,README.md} "$out/"
     find "$out" -name "__pycache__" -prune -exec rm -rf {} +

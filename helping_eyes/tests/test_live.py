@@ -1,5 +1,5 @@
 """
-Tests for live.py: the guidance state machine and the book-page decisions, with
+Tests for vision.py part C (live guidance): the guidance state machine and the book-page decisions, with
 the OCR replaced by fakes (no camera, OCR or model needed):
 
     python tests/test_live.py        (or: python -m pytest tests/test_live.py)
@@ -12,10 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import numpy as np
 
-import live
-from book_mode import PageLayout
+import vision as live
+from vision import PageInfo, PageLayout, QualityReport
 from doc_assistant import DocAssistant
-from page_enhance import QualityReport
 from text_vision import TextLine
 
 W, H = 1280, 720
@@ -153,7 +152,6 @@ PAGE_B = "Chapter two began with rain. The streets filled slowly and the lamps c
 def fake_page(text, number=None):
     layout = PageLayout(paragraphs=[(0, len(text))])
     if number:
-        from book_mode import PageInfo
         layout.pages.append(PageInfo(number=number))
     return text, layout
 

@@ -1,5 +1,5 @@
 """
-Tests for page_enhance.py on synthetic pages (no camera, no OCR needed):
+Tests for vision.py part A (image quality and page geometry) on synthetic pages (no camera, no OCR needed):
 
     python tests/test_page_enhance.py        (or: python -m pytest tests/test_page_enhance.py)
 
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import cv2
 import numpy as np
 
-import page_enhance as pe
+import vision as pe
 
 W, H = 900, 1200
 WORDS = "the quick brown fox jumps over a lazy dog while reading books by night".split()

@@ -70,24 +70,62 @@ On a laptop, text recognition (Apple Vision), layout analysis and question answe
 
 ## System Architecture
 
-<img src="docs/architecture.png" width="900" alt="Architecture: the browser sends preview frames, photos and requests to the FastAPI server, which uses the OCR, page-enhancement, book-mode and answering modules, Ollama and DuckDuckGo">
+<img src="docs/architecture.png" width="900" alt="Life cycle of a request: camera pictures go through the coach (vision.py), the photo fixer and the text reader into saved text; voice or typing goes through speech to text and the command check to the language model; everything ends as speech and on-screen output">
 
-The request flow:
+The picture shows the life cycle of one request, from input to output. The diagram below shows the parts it passes through and how they connect.
 
 ```mermaid
-flowchart LR
-    A[Text in front<br/>of the camera] --> B[Webcam]
-    B --> C[Live text detection<br/>Apple Vision, fast mode]
-    C --> D[Spoken guidance<br/>position and hold still]
-    D --> E[Capture<br/>Apple Vision, accurate mode]
-    E --> F[(Captured text)]
-    U[User request<br/>spoken or typed] --> R{Request type}
-    F --> R
-    R -- read everything --> S[Speak the full text]
-    R -- read a part /<br/>ask a question --> Q[Qwen 2.5 7B Instruct<br/>via Ollama]
-    Q --> T[Speak the answer<br/>sentence by sentence]
-    Q -- answer not in the text --> O{Offer web lookup}
-    O -- user agrees --> W[DuckDuckGo search] --> Q2[Qwen answers from<br/>search results] --> T
+flowchart TB
+    subgraph BR["Browser (web/app.js): camera, microphone, speaker, overlay"]
+        CAM[Camera]
+        MIC[Voice or typed request]
+        OUT[Speech out and overlay<br/>guide box, page layout, highlighted word]
+    end
+
+    subgraph SV["Server (server.py)"]
+        WS["/ws/live<br/>preview frames"]
+        CAP["/api/capture<br/>one photo"]
+        BK["/api/book/page<br/>one book view"]
+        ASK["/api/ask<br/>one request"]
+        CMD["commands.py<br/>command or question?"]
+
+        subgraph VIS["vision.py"]
+            PC["Part C: live guidance<br/>hints, hold still, capture, page turns"]
+            PB["Part B: book mode<br/>spine, page numbers, reading order,<br/>resume after the view moves"]
+            PA["Part A: image quality and page geometry<br/>blur / glare, flatten, dewarp, shadows"]
+        end
+
+        OCR["text_vision.py<br/>Apple Vision (Mac) or RapidOCR"]
+        DA["doc_assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
+    end
+
+    LLM[Ollama: Qwen 2.5 Instruct]
+    WEB[DuckDuckGo<br/>only with consent]
+
+    CAM --> WS
+    CAM --> CAP
+    CAM --> BK
+    MIC --> ASK
+
+    WS --> PC
+    BK --> PC
+    PC --> PB
+    PC --> PA
+    CAP --> PA
+    PB --> PA
+    PA --> OCR
+    PC --> OCR
+    PB --> OCR
+    PB -- page text and facts --> DA
+    CAP -- text --> DA
+    ASK --> CMD
+    CMD --> DA
+    DA --> LLM
+    DA -- after you agree --> WEB
+
+    WS -- hints, boxes, capture, page turns --> OUT
+    BK -- text to read, page layout --> OUT
+    ASK -- sentences, commands --> OUT
 ```
 
 ---
@@ -100,15 +138,15 @@ flowchart LR
 |---|---|---|
 | Image acquisition | Browser camera (`getUserMedia`) | Rear camera at up to 1080p; small preview frames go to the server over a WebSocket, the full-size photo only when capturing |
 | Text detection | OCR engine, fast check (`text_vision.py`) | Locates every line of text in each preview frame |
-| User guidance | `live.py` (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
+| User guidance | `vision.py`, part C (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
 | Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own |
 | Understanding | Qwen 2.5 Instruct via Ollama (`doc_assistant.py`) | Reads requested parts or answers questions using only the captured text |
 | Expiry checks | `doc_assistant.py` | Expiry dates are compared with the current date in code, not by the model |
 | Web lookup | DuckDuckGo (`ddgs`) and Qwen | Used only with the user's consent; answers are prefixed with "According to the web" |
-| Image quality | OpenCV layer (`page_enhance.py`) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
-| Book reading | OpenCV pipeline (`book_mode.py`, `live.py`) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
+| Image quality | OpenCV layer (`vision.py`, part A) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
+| Book reading | OpenCV pipeline (`vision.py`, parts B and C) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
 | Text-to-speech | Browser `speechSynthesis` | Queued, interruptible speech; the word being spoken is reported back for the on-screen highlight |
 
 ---
@@ -119,30 +157,29 @@ flowchart LR
 Helping_Eyes-main/
 ├── helping_eyes/           # The application: one codebase for a laptop and for the cloud
 │   ├── server.py           # FastAPI server: live stream, capture, book pages, requests, health
-│   ├── live.py             # Live guidance, page-turn watching and book-page decisions
+│   ├── vision.py           # All the computer vision, in three parts: A image quality, B book mode, C live guidance
 │   ├── commands.py         # What a spoken or typed request means
 │   ├── doc_assistant.py    # Question answering with Qwen (Ollama), expiry checks, web lookup
-│   ├── book_mode.py        # Page-turn detection, spread splitting, page numbers, reading order
 │   ├── text_vision.py      # OCR: Apple Vision (macOS) or RapidOCR (anywhere else)
-│   ├── page_enhance.py     # Image-quality scoring, page flattening, dewarping, tone correction
 │   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
 │   ├── tests/              # test_page_enhance, test_commands, test_live, test_server
 │   ├── requirements.txt    # Dependencies (laptop and cloud)
 │   └── .env.example        # Optional settings (copy to .env)
 ├── docs/                   # Diagram and screenshots used in this README
+├── presentation/           # Slides, narrated video, script and the course requirements document
+├── .github/workflows/      # check.yml: runs the tests on every push
 ├── requirements.txt        # Same as helping_eyes/requirements.txt
+├── working.md              # Plain-language explanation of every file and of a request's life cycle
 └── README.md
 ```
 
 | File | Main components |
 |---|---|
 | `server.py` | `/ws/live` (preview frames in, guidance and page turns out) · `/api/capture` (photo → text) · `/api/book/page` (book view → what to read, from where, and the page layout) · `/api/ask` (one request → commands, answers, web lookup, streamed as NDJSON) · `/api/health` · one session per browser (30 min) and a per-client rate limit |
-| `live.py` | `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
+| `vision.py` | **Part A, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part B, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part C, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
 | `commands.py` | `classify()` turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question |
 | `doc_assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
-| `book_mode.py` | `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) |
-| `page_enhance.py` | `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold |
 | `text_vision.py` | `find_text_region()` for live detection · `read_text()` and `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read · two engines selected with `OCR_ENGINE` |
 | `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output with word tracking · hands-free speech input with an echo guard · keyboard shortcuts. It holds no decision logic |
 
@@ -285,7 +322,7 @@ The microphone listens only while the application is silent, so that it does not
 
 ## Computer Vision: Book Reading Mode
 
-Book mode reads a book page by page without manual interaction: the user opens the book in front of the camera, listens, and turns the page. The OCR engine recognises the characters of each line; **the decisions of when to read, where each page lies and in what order to read are made by the project's own OpenCV pipeline** in [`book_mode.py`](helping_eyes/book_mode.py) and [`live.py`](helping_eyes/live.py).
+Book mode reads a book page by page without manual interaction: the user opens the book in front of the camera, listens, and turns the page. The OCR engine recognises the characters of each line; **the decisions of when to read, where each page lies and in what order to read are made by the project's own OpenCV pipeline** in [`vision.py`](helping_eyes/vision.py) (parts B and C).
 
 <img src="docs/book_mode_overlay.jpg" width="720" alt="Book mode overlay on a synthetic two-page spread: spine line in yellow, page numbers and running title outlined in purple, paragraph boxes in green numbered 1 to 6 in reading order">
 
@@ -336,13 +373,13 @@ While a page is read aloud, the display follows the speech word by word: the **l
 
 <img src="docs/book_mode_highlight.jpg" width="720" alt="Book mode reading highlight: the line being spoken highlighted in yellow and the current word outlined in orange">
 
-- **Spoken position:** the browser's speech engine reports the word being spoken (the `boundary` event of `speechSynthesis`), and `app.js` converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `live.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
+- **Spoken position:** the browser's speech engine reports the word being spoken (the `boundary` event of `speechSynthesis`), and `app.js` converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `vision.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
 - **On-page location:** during recognition, the OCR engine provides a bounding box for every word (Apple Vision: `boundingBoxForRange`), and `read_page()` records which characters of the page text belong to which printed line and word (`PageLayout.lines`, `line_at()`, `word_at()`). The server sends this layout to the page with each new book page.
 - Combining the two yields the exact on-screen location of the word being spoken, drawn on the overlay in the browser.
 
 ### 5. Continuing after the view moves
 
-If the camera or the book moves, the new view is compared with the page being read before anything is spoken again (`continue_from()` in `book_mode.py`):
+If the camera or the book moves, the new view is compared with the page being read before anything is spoken again (`continue_from()` in `vision.py`):
 
 - The words of both views are aligned with a sequence matcher (`difflib.SequenceMatcher`). Only matching runs of at least three consecutive words count, so common words shared by different pages do not register as an overlap.
 - **Printed page numbers take precedence:** if both views show page numbers and they differ, the view is a new page regardless of the words.

@@ -189,7 +189,7 @@ def read_text(image: np.ndarray) -> str:
 
 def read_text_enhanced(image: np.ndarray, report=None) -> Tuple[str, str]:
     """
-    Accurate read that copes with skew, shadows and glare: page_enhance offers
+    Accurate read that copes with skew, shadows and glare: vision.py (part A) offers
     extra versions of the image (flattened page, shadow-corrected, binarised)
     only when the frame looks like it needs them, and the version Vision is
     most confident about wins (sum of confidence x characters, so a version
@@ -197,7 +197,7 @@ def read_text_enhanced(image: np.ndarray, report=None) -> Tuple[str, str]:
     the win unless another version is clearly better.
     Returns (text, name of the winning version).
     """
-    from page_enhance import capture_candidates
+    from vision import capture_candidates
     best_name, best_lines, best_score = "original", [], -1.0
     for name, candidate in capture_candidates(image, report):
         lines = [l for l in recognize_text(candidate, fast=False) if l.text.strip()]

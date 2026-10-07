@@ -15,7 +15,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile everything
         working-directory: helping_eyes
-        run: python -m py_compile server.py commands.py live.py doc_assistant.py book_mode.py text_vision.py page_enhance.py
+        run: python -m py_compile server.py commands.py vision.py doc_assistant.py text_vision.py
       - name: Image layer, commands and live-guidance tests (no OCR or model needed)
         working-directory: helping_eyes
         run: |
