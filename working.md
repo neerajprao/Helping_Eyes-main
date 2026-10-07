@@ -56,6 +56,7 @@ There is one test file for each part of `vision.py`, plus one each for the other
 | `test_commands.py` | That "stop", "next", "yes", "book mode" and similar are understood correctly. |
 | `test_llm.py` | The AI client against a pretend AI server: sentences arrive one by one, errors are spoken plainly, the web-search offer works, and expiry questions never call the AI. |
 | `test_server.py` | The whole server for real: reading a picture of a label, answering, the live stream, and book pages. |
+| `test_run.py` | The start button: that it finds the packages and the key, picks a free port, really starts the app, serves the page, and stops cleanly. |
 
 To run them all: `cd helping_eyes` and then `for t in tests/test_*.py; do python "$t" || break; done`.
 
@@ -66,6 +67,7 @@ To run them all: `cd helping_eyes` and then `for t in tests/test_*.py; do python
 | `README.md` | The full project report: problem, design, how to run it, results, limits. |
 | `working.md` | This file. |
 | `hosting.md` | A plain-language guide to hosting: what each hosting file does, the steps for Render and Hugging Face, and a flowchart from your computer to a live website. |
+| `run.py` | The start button for your own laptop. One command, `python run.py`, does what the host does: it checks that Python and the packages are fine, tells you if your AI key is missing, starts the server, waits until the text reader has loaded, and opens the app in Chrome. Chrome does the camera, the microphone, listening and speaking. It picks another port if the usual one is busy, and stops cleanly with Ctrl+C. |
 | `requirements.txt` | The one shopping list of Python packages for the whole project: running the app, the tests and the online package all use it. Install with `pip install -r requirements.txt` from the top folder. |
 | `docs/` | Pictures used in the docs: the architecture diagram, the hosting flowchart and book-mode screenshots. `make_architecture.py` and `make_hosting.py` redraw the two diagrams (`python docs/make_architecture.py`, `python docs/make_hosting.py`) whenever they change. |
 | `presentation/` | The slides, the narrated video, the script and the course requirements document. |

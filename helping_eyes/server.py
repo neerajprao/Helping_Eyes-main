@@ -18,7 +18,7 @@ Run it:
 
 Settings (environment or .env), the same on a laptop and in the cloud:
     LLM_API_KEY   key for the language model API (required)
-    LLM_MODEL     model name (default gemini-2.5-flash-lite)
+    LLM_MODEL     model name (default gemini-3.1-flash-lite)
     LLM_BASE_URL  any OpenAI-compatible chat API (default: Google Gemini's)
 """
 

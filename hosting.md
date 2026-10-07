@@ -1,7 +1,7 @@
 # How Helping Eyes is hosted
 
 Hosting means putting the app on a computer that is always on, so anyone can open it from a web address.
-Your own laptop is fine for testing, but a host is needed if other people should use it.
+Your own laptop is fine for testing (run `python run.py`, which does the same things on your computer), but a host is needed if other people should use it.
 
 The app goes onto the host as a **container**. A container is a sealed box that has the app and everything
 it needs inside, so it runs the same way on any host. A short recipe file (the `Dockerfile`) tells the host
@@ -57,7 +57,7 @@ You set these on the host's settings page, not in the code:
 | Setting | Needed? | What it is |
 |---|---|---|
 | `LLM_API_KEY` | **Yes** | Your free key from [Google AI Studio](https://aistudio.google.com/apikey). Keep it secret. |
-| `LLM_MODEL` | No | Which AI model to use. The default is `gemini-2.5-flash-lite`. |
+| `LLM_MODEL` | No | Which AI model to use. The default is `gemini-3.1-flash-lite`. Google retires and restricts old model names, so if the app says the model name was not found, look up the current Flash-Lite name on Google's model page and set it here. |
 | `LLM_BASE_URL` | No | Which AI service to talk to. The default is Google's. Change it (with the model and key) to use another provider, such as Groq or OpenRouter. |
 | `PORT` | No | The host sets this for you. The app falls back to 7860. |
 

@@ -6,7 +6,7 @@ optional web lookup (DuckDuckGo) when the captured text doesn't contain the answ
 Settings (environment or .env); nothing here is specific to one provider:
     LLM_BASE_URL  chat API address (default: Google Gemini's OpenAI-compatible endpoint)
     LLM_API_KEY   the provider's API key
-    LLM_MODEL     model name (default: gemini-2.5-flash-lite)
+    LLM_MODEL     model name (default: gemini-3.1-flash-lite)
 """
 
 import json
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").rstrip("/")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash-lite")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
 
 # The model replies with exactly this when the user wants everything read out;
 # the app then speaks the OCR text itself instead of the model's version.
@@ -104,6 +104,7 @@ Web results:
 MSG_UNREACHABLE = "I can't reach the language model. Please check the internet connection."
 MSG_NO_KEY = "No API key is set for the language model. Please set LLM_API_KEY."
 MSG_BAD_KEY = "The language model rejected the request. Please check the API key."
+MSG_NO_MODEL = "The language model name was not found. Please check LLM_MODEL and LLM_BASE_URL."
 MSG_BUSY = "The language model is busy right now, or today's free limit is used up. Please try again in a minute."
 MSG_FAILED = "Sorry, something went wrong while thinking about that."
 
@@ -218,6 +219,14 @@ def web_search(query: str, max_results: int = 5) -> List[dict]:
     """DuckDuckGo text search: [{title, href, body}, ...]. Only the query leaves the Mac."""
     from ddgs import DDGS  # imported here so the app still starts if ddgs is missing
     return DDGS(timeout=10).text(query, max_results=max_results) or []
+
+
+def _why(response) -> str:
+    """The provider's own explanation of an error (it says which model or key is wrong), shortened for the log."""
+    try:
+        return " ".join(response.text.split())[:300] or "(no details)"
+    except Exception:
+        return "(no details)"
 
 
 def _headers() -> dict:
@@ -372,6 +381,8 @@ class DocAssistant:
                 stream=True,
                 timeout=(5, 120),
             ) as r:
+                if not r.ok:
+                    r.content                                  # read the error body now: it is gone once the connection closes
                 r.raise_for_status()
                 for raw in r.iter_lines():
                     if generation != self._generation:
@@ -418,11 +429,12 @@ class DocAssistant:
                         break
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else 0
-            logger.error(f"Language model returned HTTP {status}")
+            logger.error(f"Language model returned HTTP {status} for model {LLM_MODEL}: {_why(e.response)}")
             if not LLM_API_KEY and status in (400, 401, 403):
                 yield MSG_NO_KEY                               # providers answer a missing key with 400, 401 or 403
             else:
-                yield MSG_BAD_KEY if status in (401, 403) else MSG_BUSY if status == 429 else MSG_FAILED
+                yield (MSG_BAD_KEY if status in (401, 403) else MSG_NO_MODEL if status == 404
+                       else MSG_BUSY if status == 429 else MSG_FAILED)
             return
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             yield MSG_UNREACHABLE

@@ -112,7 +112,7 @@ def test_no_key_means_no_authorization_header():
 
 
 def test_provider_problems_are_spoken_plainly():
-    for status, message in [(401, da.MSG_BAD_KEY), (403, da.MSG_BAD_KEY), (429, da.MSG_BUSY), (500, da.MSG_FAILED)]:
+    for status, message in [(401, da.MSG_BAD_KEY), (403, da.MSG_BAD_KEY), (404, da.MSG_NO_MODEL), (429, da.MSG_BUSY), (500, da.MSG_FAILED)]:
         doc = setup(status=status)
         assert list(doc.ask("how many?")) == [message], status
     for status in (400, 401, 403):                       # no key set: say so, whatever the provider answers
@@ -120,6 +120,35 @@ def test_provider_problems_are_spoken_plainly():
     doc = setup()
     da.LLM_BASE_URL = "http://127.0.0.1:9"               # nothing is listening there
     assert list(doc.ask("how many?")) == [da.MSG_UNREACHABLE]
+
+
+def test_the_providers_own_explanation_of_an_error_is_logged():
+    import logging
+    records = []
+
+    class Catch(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    handler = Catch()
+    da.logger.addHandler(handler)
+    original = Fake.do_POST
+
+    def not_found(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = b'{"error": {"message": "models/old-model is not found for API version v1beta"}}'
+        self.send_response(404)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    Fake.do_POST = not_found
+    try:
+        assert list(setup().ask("how many?")) == [da.MSG_NO_MODEL]
+    finally:
+        Fake.do_POST = original
+        da.logger.removeHandler(handler)
+    assert any("HTTP 404" in m and "some-model" in m and "is not found for API version" in m for m in records), records
 
 
 def test_web_lookup_searches_then_answers_from_the_results():

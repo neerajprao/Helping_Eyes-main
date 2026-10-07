@@ -162,11 +162,12 @@ Helping_Eyes-main/
 │   ├── assistant.py    # Question answering through a language model API, expiry checks, web lookup
 │   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
-│   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm and server
+│   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm, server and run
 │   └── .env.example        # Optional settings (copy to .env)
 ├── docs/                   # Diagrams and screenshots used in the docs (make_architecture.py and make_hosting.py redraw the diagrams)
 ├── presentation/           # Slides, narrated video, script and the course requirements document
 ├── .github/workflows/      # check.yml: runs the tests on every push
+├── run.py                  # Runs the whole app on this computer: checks, starts the server, opens Chrome
 ├── requirements.txt        # The only requirements file: every dependency (laptop, tests, cloud image)
 ├── working.md              # Plain-language explanation of every file and of a request's life cycle
 ├── hosting.md              # Plain-language guide to hosting the app, with a flowchart
@@ -216,7 +217,7 @@ Only the language model's API key is required. Copy `helping_eyes/.env.example` 
 LLM_API_KEY=<YOUR_KEY>
 
 # Optional: defaults shown. Any OpenAI-compatible chat API works.
-# LLM_MODEL=gemini-2.5-flash-lite
+# LLM_MODEL=gemini-3.1-flash-lite
 # LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
@@ -236,6 +237,9 @@ python -m pip install -r requirements.txt
 
 # 3. Your language model key
 cp helping_eyes/.env.example helping_eyes/.env      # then put your key in LLM_API_KEY
+
+# 4. Run it
+python run.py
 ```
 
 On first use the browser asks for **camera** and **microphone** access; allow both.
@@ -247,9 +251,10 @@ On first use the browser asks for **camera** and **microphone** access; allow bo
 ### On a laptop
 
 ```bash
-cd helping_eyes
-uvicorn server:app --port 7860          # then open http://localhost:7860 in Chrome or Edge
+python run.py                  # checks your setup, starts the app and opens it in Chrome
 ```
+
+`run.py` does everything the host does, on this computer: it checks the Python version and the installed packages, tells you if the language-model key is missing, starts the same server, waits until the text reader has loaded and opens the page. Chrome (or Edge) does the camera, the microphone, speech to text and text to speech, exactly as for a visitor on the host. Options: `--no-browser` (print the address only), `--port 8000` (default 7860; the next free port is used if it is taken) and `--host 0.0.0.0` (also reachable from other devices on your network). Stop it with Ctrl+C. To start the server without `run.py`: `cd helping_eyes && uvicorn server:app --port 7860`.
 
 1. Allow the camera. Hold the item in front of it and follow the spoken guidance; it is captured automatically once it is steady and in view.
 2. After *"Got it"*, ask aloud (press **Listen** once for hands-free listening) or type the question and press Enter.
@@ -399,7 +404,7 @@ If the camera or the book moves, the new view is compared with the page being re
 | View moved mid-read (camera shifted 320 px; top lines left, new lines entered) | Reading continued from the exact word reached, with no new-page announcement; the newly visible lines were then read |
 | Different page after reading | Detected as a new page and read from the beginning |
 | Processing time | Page-turn detector 0.2 ms per frame; spine and layout analysis 8 ms; full page including recognition and word boxes about 0.4–0.9 s |
-| Automated tests | 85 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (10), server endpoints and WebSocket with real OCR (9) |
+| Automated tests | 94 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (11), server endpoints and WebSocket with real OCR (9), `run.py` (8: helpers, a real start, port fallback, Ctrl+C stop) |
 | End to end in Chrome, fake camera filming a medicine label | Guidance, automatic capture (0.6 s), "read everything" and the expiry answer worked; in book mode with a looping two-page video, page turns were detected, announced and read (each page request 0.24–0.41 s). The language model itself was tested against a fake provider, not the real Gemini service |
 
 The principal benefits of book mode are hands-free page turning, identification of the printed page number and title on any page, correct handling of two-page spreads and headers, paragraph structure, and the reading position highlight.
@@ -474,6 +479,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | Issue | Solution |
 |---|---|
 | "No API key is set" or "rejected the request" | Put your key in `LLM_API_KEY` (`helping_eyes/.env`, or the host's secrets) and restart. `/api/health` shows `llm_configured`, and also the OCR status, the memory in use and the host's memory limit. |
+| "The language model name was not found" (HTTP 404 in the log) | The key works but `LLM_MODEL` (or `LLM_BASE_URL`) is wrong. Google retires and restricts old model names (`gemini-2.5-flash-lite` stopped working for new keys). Look up the current Flash-Lite name on Google's model page and set it in `helping_eyes/.env`; the log line after "Language model returned HTTP 404" quotes Google's own explanation. |
 | "The language model is busy" | The free-tier limit was reached. Wait a minute, or switch model or provider with `LLM_MODEL` and `LLM_BASE_URL`. |
 | "I can't reach the language model" | Check the internet connection and `LLM_BASE_URL`. |
 | "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo may rate-limit requests; wait a minute and try again. |

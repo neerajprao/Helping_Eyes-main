@@ -1,0 +1,188 @@
+"""
+Run Helping Eyes on this computer, the same app that runs on the host:
+
+    python run.py                    start it and open it in Chrome
+    python run.py --no-browser       start it and print the address only
+    python run.py --port 8000        use another port (default 7860; the next free one if it is taken)
+    python run.py --host 0.0.0.0     also reachable from other devices on your network
+
+It checks your setup, starts the server (helping_eyes/server.py), waits until it is ready and opens
+the page. Chrome does the camera, the microphone, speech to text and text to speech, exactly as it
+does for a visitor on the host. The only thing you need is a language-model key in helping_eyes/.env:
+
+    LLM_API_KEY=<your key from https://aistudio.google.com/apikey>
+
+Without a key the app still starts; "read everything", expiry and page-number answers and the live
+guidance work, and questions that need the language model say the key is missing.
+Stop it with Ctrl+C.
+"""
+
+import argparse
+import importlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+import webbrowser
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.join(ROOT, "helping_eyes")
+ENV_FILE = os.path.join(APP_DIR, ".env")
+DEFAULT_PORT = 7860
+REQUIRED = {"fastapi": "fastapi", "uvicorn": "uvicorn", "multipart": "python-multipart", "cv2": "opencv-python-headless",
+            "numpy": "numpy", "rapidocr": "rapidocr", "onnxruntime": "onnxruntime", "requests": "requests",
+            "ddgs": "ddgs", "dotenv": "python-dotenv"}
+
+
+# ---------------------------------------------------------------- checks
+def check_python() -> None:
+    if sys.version_info < (3, 11):
+        sys.exit(f"Helping Eyes needs Python 3.11 or later; this is {sys.version.split()[0]}.")
+
+
+def missing_packages() -> list:
+    """Names (as pip knows them) of the required packages that cannot be imported."""
+    missing = []
+    for module, package in REQUIRED.items():
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append(package)
+    return missing
+
+
+def read_key() -> str:
+    """The language-model key the server will use: the environment wins, even when it is empty (the server
+    never overrides a variable that is already set), otherwise helping_eyes/.env; '' when there is none."""
+    if "LLM_API_KEY" in os.environ:
+        return os.environ["LLM_API_KEY"]
+    try:
+        for line in open(ENV_FILE):
+            name, _, value = line.strip().partition("=")
+            if name.strip() == "LLM_API_KEY":
+                return value.strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
+def port_is_free(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) != 0
+
+
+def pick_port(wanted: int, tries: int = 20) -> int:
+    """The wanted port if it is free, otherwise the next free one."""
+    for port in range(wanted, wanted + tries):
+        if port_is_free(port):
+            return port
+    sys.exit(f"No free port between {wanted} and {wanted + tries - 1}. Close other programs, or use --port.")
+
+
+# ---------------------------------------------------------------- browser
+def browser_command(url: str):
+    """The command that opens `url` in Chrome (or Edge: the other browser with speech recognition), or None."""
+    if sys.platform == "darwin":
+        for app in ("Google Chrome", "Microsoft Edge", "Chromium"):
+            if os.path.isdir(f"/Applications/{app}.app"):
+                return ["open", "-a", app, url]
+    elif sys.platform == "win32":
+        base = [os.environ.get(v, "") for v in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+        for sub in (r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe"):
+            for root in base:
+                if root and os.path.isfile(os.path.join(root, sub)):
+                    return [os.path.join(root, sub), url]
+    else:
+        for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"):
+            if shutil.which(name):
+                return [name, url]
+    return None
+
+
+def open_browser(url: str) -> str:
+    """Open the page. Returns the name of what opened it."""
+    command = browser_command(url)
+    if command:
+        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "Chrome" if "Edge" not in " ".join(command) and "edge" not in command[0].lower() else "Edge"
+    webbrowser.open(url)
+    return "your default browser (Chrome or Edge is recommended: speech recognition needs one of them)"
+
+
+# ---------------------------------------------------------------- start
+def health(port: int):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+            return json.load(r)
+    except Exception:
+        return None
+
+
+def announce_when_ready(port: int, open_page: bool, url: str) -> None:
+    """Wait for the server to answer, open the page, then say when the OCR has finished loading."""
+    for _ in range(120):
+        if health(port):
+            break
+        time.sleep(0.5)
+    else:
+        print("The server did not start answering. Check the messages above.")
+        return
+    if open_page:
+        print(f"Opened {open_browser(url)}.")
+    for _ in range(240):
+        status = health(port) or {}
+        if status.get("ocr") == "ready":
+            print("Ready: the text reader has loaded. Hold something up to the camera.")
+            return
+        if str(status.get("ocr", "")).startswith("failed"):
+            print(f"The text reader failed to load: {status['ocr']}")
+            return
+        time.sleep(0.5)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run Helping Eyes on this computer.")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", DEFAULT_PORT)), help="port to use (default 7860)")
+    parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this computer only)")
+    parser.add_argument("--no-browser", action="store_true", help="do not open the page")
+    args = parser.parse_args()
+
+    check_python()
+    missing = missing_packages()
+    if missing:
+        sys.exit("These packages are missing: " + ", ".join(missing) +
+                 f"\nInstall everything with:  {sys.executable} -m pip install -r requirements.txt")
+
+    port = pick_port(args.port)
+    if port != args.port:
+        print(f"Port {args.port} is in use, using {port} instead.")
+    url = f"http://localhost:{port}"
+
+    print("Helping Eyes")
+    print(f"  address   {url}" + ("   (and the other addresses of this computer)" if args.host == "0.0.0.0" else ""))
+    if read_key():
+        print("  AI model  key found")
+    else:
+        print(f"  AI model  NO KEY. Add  LLM_API_KEY=...  to {os.path.relpath(ENV_FILE, ROOT)}  to enable answers.")
+        print("            (read everything, expiry, page numbers and the live guidance work without it)")
+    if args.host == "0.0.0.0":
+        print("  note      other devices need https for the camera; over plain http it works only on this computer")
+    print("  stop      press Ctrl+C\n")
+
+    threading.Thread(target=announce_when_ready, args=(port, not args.no_browser, url), daemon=True).start()
+
+    import uvicorn
+    try:
+        uvicorn.run("server:app", app_dir=APP_DIR, host=args.host, port=port, log_level="info")
+    except KeyboardInterrupt:
+        pass
+    print("\nStopped.")
+
+
+if __name__ == "__main__":
+    main()
