@@ -65,8 +65,9 @@ To run them all: `cd helping_eyes` and then `for t in tests/test_*.py; do python
 |---|---|
 | `README.md` | The full project report: problem, design, how to run it, results, limits. |
 | `working.md` | This file. |
+| `hosting.md` | A plain-language guide to hosting: what each hosting file does, the steps for Render and Hugging Face, and a flowchart from your computer to a live website. |
 | `requirements.txt` | The one shopping list of Python packages for the whole project: running the app, the tests and the online package all use it. Install with `pip install -r requirements.txt` from the top folder. |
-| `docs/` | Pictures used in the README: the architecture diagram and book-mode screenshots. `make_architecture.py` redraws the diagram (`python docs/make_architecture.py`) whenever the architecture changes. |
+| `docs/` | Pictures used in the docs: the architecture diagram, the hosting flowchart and book-mode screenshots. `make_architecture.py` and `make_hosting.py` redraw the two diagrams (`python docs/make_architecture.py`, `python docs/make_hosting.py`) whenever they change. |
 | `presentation/` | The slides, the narrated video, the script and the course requirements document. |
 | `.github/workflows/check.yml` | Makes GitHub run all the tests automatically whenever code is pushed. |
 | `graphify-out/` | A map of the code made by a helper tool (graphify). Not part of the app, and ignored by git, so it is never committed. |

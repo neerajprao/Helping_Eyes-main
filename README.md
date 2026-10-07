@@ -164,11 +164,12 @@ Helping_Eyes-main/
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
 │   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm and server
 │   └── .env.example        # Optional settings (copy to .env)
-├── docs/                   # Diagram and screenshots used in this README (make_architecture.py redraws the diagram)
+├── docs/                   # Diagrams and screenshots used in the docs (make_architecture.py and make_hosting.py redraw the diagrams)
 ├── presentation/           # Slides, narrated video, script and the course requirements document
 ├── .github/workflows/      # check.yml: runs the tests on every push
 ├── requirements.txt        # The only requirements file: every dependency (laptop, tests, cloud image)
 ├── working.md              # Plain-language explanation of every file and of a request's life cycle
+├── hosting.md              # Plain-language guide to hosting the app, with a flowchart
 └── README.md
 ```
 
@@ -264,7 +265,7 @@ The app is a single container that needs no model server or GPU: `helping_eyes/c
 - **Render (free web service):** WebSockets are supported, which the live camera feed needs. Create a Web Service from this repository, choose the Docker runtime, leave *Root Directory* empty (the repository's top folder, where `requirements.txt` is) and set *Dockerfile Path* to `helping_eyes/cloud/Dockerfile`, and add `LLM_API_KEY` under *Environment*. A free service sleeps after about 15 minutes idle and has 512 MB of memory, which may be tight for OCR, so check memory use before relying on it.
 - **Hugging Face Spaces (Docker):** create the Space, add `LLM_API_KEY` under *Settings → Variables and secrets*, then run `HF_TOKEN=hf_xxx ./helping_eyes/cloud/deploy_space.sh <your-username>`. Reports say Docker Spaces may now require a paid plan, so check your account first.
 
-Neither host has been tested with this version yet. After deploying, open `/api/health`: `llm_configured` must be `true`. A free service sleeps when unused, so open the URL a few minutes before a demo.
+A plain-language walkthrough of every hosting file, with a flowchart, is in [hosting.md](hosting.md). Neither host has been tested with this version yet. After deploying, open `/api/health`: `llm_configured` must be `true`. A free service sleeps when unused, so open the URL a few minutes before a demo.
 
 ### Tests
 
