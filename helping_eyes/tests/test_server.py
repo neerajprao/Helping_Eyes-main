@@ -46,6 +46,9 @@ def test_health_and_page():
     health = client.get("/api/health").json()
     assert health["status"] == "ok"
     assert health["model"] and "llm_configured" in health
+    assert isinstance(health["memory_mb"], float) and health["memory_mb"] > 10      # how much memory the server uses
+    assert "memory_limit_mb" in health and health["cpus"] >= 1
+    assert health["ocr"] in ("starting", "loading OCR", "ready")
 
 
 def test_bad_inputs_are_rejected():

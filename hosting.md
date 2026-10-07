@@ -84,7 +84,7 @@ You set these on the host's settings page, not in the code:
 
 ### After it is live
 
-1. Open `your-address/api/health`. You should see `"status":"ok"` and `"llm_configured":true`. If it says `false`, the key is missing in the host's settings.
+1. Open `your-address/api/health`. You should see `"status":"ok"` and `"llm_configured":true` (if it says `false`, the key is missing in the host's settings). It also shows how the server is doing: `"ocr"` (`"ready"` once the start-up warm-up has finished), `"memory_mb"` (what the app uses now), `"memory_limit_mb"` (what the host allows, when it says) and `"cpus"`. If `memory_mb` sits near `memory_limit_mb`, or `"ocr"` never reaches `"ready"`, the host is too small.
 2. Open the main address, allow the camera and microphone, and show something to the camera. Hosts give you `https`, which the browser needs before it will allow the camera.
 
 To update the live app later, push your changes again (Render rebuilds by itself if auto-deploy is on) or run the deploy script again.
@@ -94,7 +94,7 @@ To update the live app later, push your changes again (Render rebuilds by itself
 ## Things to know
 
 - **Free hosts go to sleep.** When nobody visits for a while the app sleeps, and the next visit wakes it up, which takes about a minute. Open the address a few minutes before a demo.
-- **Memory: Render's free plan is too small.** I measured the OCR here: about 375 MB once its models are loaded, and 770 MB to 980 MB while reading a full photo or a book page. Render's free plan allows 512 MB, so the app is killed the first time it reads a picture. It then restarts, and for a minute every request gets the host's HTML error page. The page shows this as "The server is not responding... out of memory" (older versions showed "Unexpected token '<'"). Check the host's Logs for "out of memory" or restarts, and its Metrics for the memory spike. Fix it by using a host or plan with at least 2 GB; shrinking the pictures did not help enough (the smallest setting I tried still peaked near 650 MB and was 2 to 3 times slower).
+- **Memory: Render's free plan is too small.** I measured the OCR here: about 375 MB once its models are loaded, and 770 MB to 980 MB while reading a full photo or a book page. Render's free plan allows 512 MB, so the app is killed the first time it reads a picture. It then restarts, and for a minute every request gets the host's HTML error page. The page shows this as "The server is not responding... out of memory" (older versions showed "Unexpected token '<'"). Check `/api/health`, the host's Logs and its Metrics. The server also logs its memory at each start-up step (`Warm-up: ... memory 375 MB`) and on every capture, so the last line before a restart shows how far it got. The start-up warm-up itself reads a sample picture and peaked near 1 GB when I measured it. Fix it by using a host or plan with at least 2 GB; shrinking the pictures did not help enough (the smallest setting I tried still peaked near 650 MB and was 2 to 3 times slower).
 - **Run only one copy.** Each visitor's captured text and conversation are kept in the server's memory, so two copies would not share them. A restart clears them.
 - **Hugging Face may need a paid plan.** One report says Docker Spaces now need one, so check your account before you start.
 - **The free Gemini limits.** The free AI plan has a daily limit. When it is used up, the app says the model is busy. Expiry questions, page-number questions and "read everything" never use the AI, so they keep working.

@@ -26,6 +26,8 @@ import json
 import logging
 import os
 import re
+import resource
+import sys
 import threading
 import time
 from collections import defaultdict, deque
@@ -151,6 +153,35 @@ def _decode(data: bytes, max_side: int = MAX_SIDE) -> np.ndarray:
     return frame
 
 
+# ---------------- memory and start-up status (to see why a small host struggles) ----------------
+def _memory_mb() -> Optional[float]:
+    """Memory this server is using right now, in MB (None when the system doesn't say)."""
+    try:
+        with open("/proc/self/status") as f:                      # Linux, which is what a host runs
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024, 1)
+    except OSError:
+        pass
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss     # elsewhere: the peak so far (bytes on macOS, KB on Linux)
+    return round(peak / (1024 * 1024 if sys.platform == "darwin" else 1024), 1)
+
+
+def _memory_limit_mb() -> Optional[float]:
+    """The memory the host allows this container, when it says so (Linux cgroups)."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            value = open(path).read().strip()
+        except OSError:
+            continue
+        if value.isdigit() and int(value) < 1 << 50:               # "max" or a huge number means no limit
+            return round(int(value) / (1024 * 1024))
+    return None
+
+
+_warmup = {"state": "starting"}       # starting -> loading OCR -> ready (or failed)
+
+
 # ---------------- API ----------------
 @app.on_event("startup")
 def _warm_up() -> None:
@@ -160,11 +191,20 @@ def _warm_up() -> None:
         # and the first capture would otherwise take many seconds
         sample = np.full((240, 900, 3), 255, np.uint8)
         cv2.putText(sample, "Helping Eyes warm up 123", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 0), 3, cv2.LINE_AA)
-        with _ocr_lock:
-            find_text_region(sample)
-            read_text_enhanced(sample)
-            read_page(sample, split=False, enhance=True)
-        logger.info("Warm-up finished")
+        try:
+            logger.info(f"Warm-up: starting, memory {_memory_mb()} MB, limit {_memory_limit_mb()} MB, {os.cpu_count()} CPUs")
+            _warmup["state"] = "loading OCR"
+            with _ocr_lock:
+                find_text_region(sample)
+                logger.info(f"Warm-up: live-frame OCR loaded, memory {_memory_mb()} MB")
+                read_text_enhanced(sample)
+                logger.info(f"Warm-up: photo OCR done, memory {_memory_mb()} MB")
+                read_page(sample, split=False, enhance=True)
+            _warmup["state"] = "ready"
+            logger.info(f"Warm-up finished, memory {_memory_mb()} MB")
+        except Exception as e:
+            _warmup["state"] = f"failed: {e}"
+            logger.error(f"Warm-up failed: {e}")
     threading.Thread(target=work, daemon=True).start()
 
 
@@ -181,7 +221,9 @@ def favicon() -> FileResponse:
 @app.get("/api/health")
 def health() -> dict:
     # No request to the language model here: free API plans count every call
-    return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY)}
+    return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY),
+            "ocr": _warmup["state"], "memory_mb": _memory_mb(), "memory_limit_mb": _memory_limit_mb(),
+            "cpus": os.cpu_count()}
 
 
 @app.post("/api/capture")
@@ -190,7 +232,9 @@ async def capture(request: Request, image: UploadFile = File(...), sid: str = Fo
     """Read all text in a photo and keep it for questions."""
     _rate_limit(request)
     session = _get_session(sid)
-    frame = _decode(await image.read())
+    data = await image.read()
+    logger.info(f"capture: received {len(data) // 1024} KB (book={book}), memory {_memory_mb()} MB")
+    frame = _decode(data)
 
     def work():
         with _ocr_lock:
@@ -204,7 +248,7 @@ async def capture(request: Request, image: UploadFile = File(...), sid: str = Fo
     started = time.time()
     text, layout, method = await run_in_threadpool(work)
     seconds = round(time.time() - started, 2)
-    logger.info(f"capture: {len(text)} characters in {seconds} s (book={book}, version={method})")
+    logger.info(f"capture: {len(text)} characters in {seconds} s (book={book}, version={method}), memory {_memory_mb()} MB")
     if not text.strip():
         return {"ok": False, "text": "", "seconds": seconds,
                 "message": "I can't see any text. Move closer, hold the item steady and try again."}
