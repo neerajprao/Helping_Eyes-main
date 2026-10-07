@@ -11,18 +11,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        working-directory: helping_eyes
         run: pip install -r requirements.txt
       - name: Compile everything
         working-directory: helping_eyes
-        run: python -m py_compile server.py commands.py vision.py doc_assistant.py text_vision.py
-      - name: Image layer, commands, live guidance and model-client tests (no OCR, key or model needed)
+        run: python -m py_compile server.py commands.py vision.py doc_assistant.py
+      - name: Run every test (the OCR, book mode and server tests use RapidOCR; none needs a key or a model)
         working-directory: helping_eyes
-        run: |
-          python tests/test_page_enhance.py
-          python tests/test_commands.py
-          python tests/test_live.py
-          python tests/test_llm.py
-      - name: Server tests (RapidOCR reads a rendered label; no language model needed)
-        working-directory: helping_eyes
-        run: python tests/test_server.py
+        run: for t in tests/test_*.py; do python "$t" || exit 1; done

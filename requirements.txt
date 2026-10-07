@@ -1,2 +1,15 @@
-# Same as helping_eyes/requirements.txt, so `pip install -r requirements.txt` works from the repo root.
--r helping_eyes/requirements.txt
+# Helping Eyes: the one requirements file for the whole project (laptop, tests and cloud image).
+#   pip install -r requirements.txt        (run from the top folder)
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+opencv-python-headless==4.13.0.92
+numpy==2.4.2
+rapidocr==3.9.2
+onnxruntime==1.30.0
+requests==2.34.2
+ddgs==9.16.0
+python-dotenv==1.2.1
+
+# Tests (python helping_eyes/tests/test_*.py runs without these, except test_server.py)
+httpx2==2.13.1

@@ -1,19 +1,23 @@
 """
-Everything that works on the camera picture, in three parts (classic OpenCV / NumPy,
-no models; the OCR itself is text_vision.py):
+Everything that works on the camera picture, in four parts (the OCR is RapidOCR; the rest is
+classic OpenCV / NumPy with no models):
 
-    PART A  Image quality and page geometry
+    PART A  Reading text (OCR)
+            picture -> lines of text with their boxes; a quick "is there text?" check for
+            live frames; an accurate read that tries corrected versions of a poor frame
+    PART B  Image quality and page geometry
             is the picture good enough? (blur, glare, light) -> spoken coaching;
             flatten a tilted page, straighten curved lines, remove shadows
-    PART B  Book reading mode
+    PART C  Book reading mode
             when to read (page turns), where the pages are (spine), in what order to
             read (columns, paragraphs), and how to carry on when the view moves
-    PART C  Live guidance
+    PART D  Live guidance
             the server side of the live camera: hints ("Move closer"), hold still,
             capture, page turns, and what to speak for a book page
 
-Part C uses Part B, which uses Part A. The browser (web/app.js) only draws and speaks;
-the decisions are made here. All boxes sent to the browser are normalised to 0-1.
+Each part builds on the ones before it (D uses C, C uses B, and all use A). The browser
+(web/app.js) only draws and speaks; the decisions are made here. All boxes sent to the
+browser are normalised to 0-1.
 
 Optional .env settings:
     VISION_ENHANCE = 0 turns the image-correction layer off (default on)
@@ -32,15 +36,113 @@ from typing import Callable, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from text_vision import TextLine, find_text_region, recognize_text
-
 logger = logging.getLogger(__name__)
 
+Box = Tuple[int, int, int, int]  # x1, y1, x2, y2
 Box = Tuple[int, int, int, int]  # x1, y1, x2, y2
 
 
 ##############################################################################
-# PART A: IMAGE QUALITY AND PAGE GEOMETRY
+# PART A: READING TEXT (OCR)
+#
+# RapidOCR (open-source, ONNX, runs on the CPU of any computer: no platform-specific
+# OCR, no GPU, no API key).
+#
+#     recognize_text()      every line of text in an image, optionally with each word's box
+#     find_text_region()    quick check of a live preview frame: is there text, and where?
+#     read_text_enhanced()  an accurate read that copes with skew, shadows and glare
+##############################################################################
+
+@dataclass
+class TextLine:
+    text: str
+    confidence: float
+    box: Box
+    # (start, end, box) of each word in `text`; filled when word_boxes=True
+    words: List[Tuple[int, int, Box]] = field(default_factory=list)
+
+
+_rapid = None
+
+
+def _quad_to_box(quad, w: int, h: int) -> Box:
+    pts = np.asarray(quad, dtype=float)
+    return (max(0, int(pts[:, 0].min())), max(0, int(pts[:, 1].min())),
+            min(w, int(pts[:, 0].max())), min(h, int(pts[:, 1].max())))
+
+
+def recognize_text(image: np.ndarray, word_boxes: bool = False) -> List[TextLine]:
+    """Find and read every line of text in a BGR image, top to bottom.
+    word_boxes=True also records where each word is."""
+    global _rapid
+    if _rapid is None:
+        from rapidocr import RapidOCR   # loaded on first use (model load takes a moment)
+        _rapid = RapidOCR()
+    h, w = image.shape[:2]
+    result = _rapid(image, return_word_box=word_boxes)
+    if result.boxes is None:
+        return []
+    word_results = getattr(result, "word_results", None) or [()] * len(result.txts)
+
+    lines = []
+    for quad, text, score, words in zip(result.boxes, result.txts, result.scores, word_results):
+        text = str(text)
+        line = TextLine(text, float(score), _quad_to_box(quad, w, h))
+        if word_boxes:
+            # Locate each recognised word in the line text to get its offsets
+            pos = 0
+            for word, _, wquad in words or ():
+                word = str(word)
+                i = text.find(word, pos) if word.strip() else -1
+                if i < 0:
+                    continue
+                line.words.append((i, i + len(word), _quad_to_box(wquad, w, h)))
+                pos = i + len(word)
+        lines.append(line)
+    lines.sort(key=lambda l: (l.box[1], l.box[0]))
+    return lines
+
+
+def find_text_region(image: np.ndarray, min_chars: int = 8) -> Tuple[Optional[Box], List[TextLine]]:
+    """
+    Quick check for readable text. Returns (box around all text, lines),
+    or (None, lines) when there are fewer than `min_chars` letters/digits.
+    """
+    lines = [l for l in recognize_text(image)
+             if len(re.sub(r"[^0-9A-Za-z\u0080-￿]", "", l.text)) >= 2]
+    chars = sum(len(re.sub(r"\s", "", l.text)) for l in lines)
+    if chars < min_chars:
+        return None, lines
+    x1 = min(l.box[0] for l in lines)
+    y1 = min(l.box[1] for l in lines)
+    x2 = max(l.box[2] for l in lines)
+    y2 = max(l.box[3] for l in lines)
+    return (x1, y1, x2, y2), lines
+
+
+def read_text_enhanced(image: np.ndarray, report=None) -> Tuple[str, str]:
+    """
+    Accurate read that copes with skew, shadows and glare: Part B offers
+    extra versions of the image (flattened page, shadow-corrected, binarised)
+    only when the frame looks like it needs them, and the version the OCR is
+    most confident about wins (sum of confidence x characters, so a version
+    that recovers more text also scores higher). The untouched frame keeps
+    the win unless another version is clearly better.
+    Returns (text, name of the winning version).
+    """
+    best_name, best_lines, best_score = "original", [], -1.0
+    for name, candidate in capture_candidates(image, report):
+        lines = [l for l in recognize_text(candidate) if l.text.strip()]
+        score = sum(l.confidence * len(l.text.strip()) for l in lines)
+        if name == "original":
+            best_lines, best_score = lines, score * 1.05      # small bias towards the untouched frame
+        elif score > best_score:
+            best_name, best_lines, best_score = name, lines, score
+    return "\n".join(l.text for l in best_lines), best_name
+
+
+##############################################################################
+# PART B: IMAGE QUALITY AND PAGE GEOMETRY
 # Sits in front of the OCR.
 #
 #     assess_quality()     blur (variance of the Laplacian), glare blobs, exposure
@@ -454,7 +556,7 @@ def prepare_page(page: np.ndarray, report: Optional[QualityReport] = None) -> Tu
 
 
 ##############################################################################
-# PART B: BOOK READING MODE
+# PART C: BOOK READING MODE
 # Decides WHEN to read a page, WHERE the pages are, and in WHAT ORDER to read the text.
 # The OCR only recognises the letters of each line.
 #
@@ -1019,7 +1121,7 @@ def read_page(frame: np.ndarray, split: bool = True, enhance: bool = False) -> T
     app can show exactly where it is reading. split=False treats the image as
     one page (e.g. a single label photographed in the web version).
 
-    enhance=True first prepares the image (Part A): a page photographed at
+    enhance=True first prepares the image (Part B): a page photographed at
     an angle is flattened with a homography, curved lines (a page bending into the
     spine) are straightened, and dark / shadowed / glary frames are tone-corrected.
     Boxes are mapped back, so the layout is still in camera coordinates.
@@ -1091,7 +1193,7 @@ def continue_from(old_text: str, old_pos: int, new_text: str,
 
 
 ##############################################################################
-# PART C: LIVE GUIDANCE
+# PART D: LIVE GUIDANCE
 # The server side of the live camera (see the module docstring).
 #
 #     LiveGuide    normal mode: is there text, is it in view, hold still, capture

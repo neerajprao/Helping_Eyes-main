@@ -8,14 +8,18 @@
 # Create the Space once on huggingface.co (New Space -> SDK: Docker -> hardware: CPU basic),
 # and a write token under Settings -> Access Tokens.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"      # helping_eyes/
+TOP="$(cd "$ROOT/.." && pwd)"                    # the project's top folder (has requirements.txt)
 
 assemble() {
     local out="$1"
     rm -rf "$out" && mkdir -p "$out"
-    cp "$ROOT"/{server.py,commands.py,vision.py,doc_assistant.py,text_vision.py,requirements.txt} "$out/"
-    cp -R "$ROOT/web" "$out/web"
-    cp "$ROOT"/cloud/{Dockerfile,start.sh,README.md} "$out/"
+    mkdir -p "$out/helping_eyes/cloud"
+    cp "$TOP/requirements.txt" "$out/"
+    cp "$ROOT"/{server.py,commands.py,vision.py,doc_assistant.py} "$out/helping_eyes/"
+    cp -R "$ROOT/web" "$out/helping_eyes/web"
+    cp "$ROOT/cloud/start.sh" "$out/helping_eyes/cloud/"
+    cp "$ROOT"/cloud/{Dockerfile,README.md} "$out/"          # Hugging Face wants these at the top
     find "$out" -name "__pycache__" -prune -exec rm -rf {} +
 }
 

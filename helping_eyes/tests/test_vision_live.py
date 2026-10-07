@@ -1,8 +1,8 @@
 """
-Tests for vision.py part C (live guidance): the guidance state machine and the book-page decisions, with
+Tests for vision.py part D (live guidance): the guidance state machine and the book-page decisions, with
 the OCR replaced by fakes (no camera, OCR or model needed):
 
-    python tests/test_live.py        (or: python -m pytest tests/test_live.py)
+    python tests/test_vision_live.py        (or: python -m pytest tests/test_vision_live.py)
 """
 
 import os
@@ -12,10 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import numpy as np
 
-import vision as live
-from vision import PageInfo, PageLayout, QualityReport
+import vision
+from vision import PageInfo, PageLayout, QualityReport, TextLine
 from doc_assistant import DocAssistant
-from text_vision import TextLine
 
 W, H = 1280, 720
 FRAME = np.zeros((H, W, 3), np.uint8)
@@ -46,7 +45,7 @@ def guide_with(box_lines, problems=(), clock=None):
     def assess(frame, box=None):
         return QualityReport(problems=state["problems"])
 
-    return live.LiveGuide(detect=detect, assess=assess, clock=clock), clock, state
+    return vision.LiveGuide(detect=detect, assess=assess, clock=clock), clock, state
 
 
 CENTRED = ((300, 150, 980, 560), [(300, 150 + i * 40, 980, 175 + i * 40) for i in range(8)])
@@ -135,7 +134,7 @@ def test_blur_is_coached_then_captured_anyway():
     assert reply["state"] == "COACH" and reply["speak"] == "Hold still, the image is blurry" and not reply["capture"]
     clock.advance(1)
     assert guide.update(FRAME)["speak"] == ""           # not repeated inside the cooldown
-    clock.advance(live.QUALITY_PATIENCE)
+    clock.advance(vision.QUALITY_PATIENCE)
     assert guide.update(FRAME)["capture"]
 
 
@@ -159,9 +158,9 @@ def fake_page(text, number=None):
 def reader_showing(pages):
     """A BookReader that 'reads' each queued page in turn."""
     queue = list(pages)
-    original = live.read_page
-    live.read_page = lambda frame, **kwargs: queue.pop(0)
-    return live.BookReader(), original
+    original = vision.read_page
+    vision.read_page = lambda frame, **kwargs: queue.pop(0)
+    return vision.BookReader(), original
 
 
 def test_book_new_page_then_same_page_then_next_page():
@@ -178,7 +177,7 @@ def test_book_new_page_then_same_page_then_next_page():
         nxt = reader.process(FRAME, "changed", len(PAGE_A), False, False, doc)
         assert nxt["action"] == "new" and doc.document == PAGE_B
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_book_view_moved_continues_from_the_word_reached():
@@ -191,7 +190,7 @@ def test_book_view_moved_continues_from_the_word_reached():
         assert resume["action"] == "resume" and resume["from_pos"] == pos
         assert resume["chunks"][0]["text"].startswith("Nobody")
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_book_page_fully_read_has_nothing_new():
@@ -202,7 +201,7 @@ def test_book_page_fully_read_has_nothing_new():
         done = reader.process(FRAME, "changed", len(PAGE_A), False, False, doc)
         assert done["action"] == "nothing_new"
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_book_different_printed_numbers_mean_a_new_page_even_with_the_same_words():
@@ -213,7 +212,7 @@ def test_book_different_printed_numbers_mean_a_new_page_even_with_the_same_words
         second = reader.process(FRAME, "changed", len(PAGE_A), False, False, doc)
         assert second["action"] == "new" and second["label"] == "Page 13"
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_book_page_number_and_title_are_introduced():
@@ -224,7 +223,7 @@ def test_book_page_number_and_title_are_introduced():
         assert first["intro"] == "Page 47."
         assert doc.page_label == "Page 47"
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_book_no_text():
@@ -232,17 +231,17 @@ def test_book_no_text():
     try:
         assert reader.process(FRAME, "changed", 0, False, False, DocAssistant())["action"] == "no_text"
     finally:
-        live.read_page = original
+        vision.read_page = original
 
 
 def test_speech_chunks_split_long_paragraphs_at_sentence_ends():
     text = ("Sentence one is here. " * 40).strip()
-    chunks = list(live.speech_chunks(text, [(0, len(text))], 0, max_len=100))
+    chunks = list(vision.speech_chunks(text, [(0, len(text))], 0, max_len=100))
     assert len(chunks) > 5
     assert "".join(t for _, t in chunks).replace(" ", "") == text.replace(" ", "")
     assert all(t.rstrip().endswith(".") for _, t in chunks)
     # starting part-way: nothing before the start is spoken
-    assert list(live.speech_chunks(text, [(0, len(text))], 30, max_len=1000))[0][0] == 30
+    assert list(vision.speech_chunks(text, [(0, len(text))], 30, max_len=1000))[0][0] == 30
 
 
 if __name__ == "__main__":

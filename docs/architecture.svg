@@ -9,7 +9,7 @@
 <rect x="210" y="105" width="320" height="50" rx="8" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
 <text x="370.0" y="135.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">INPUT 1: camera pictures</text>
 <rect x="210" y="195" width="320" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="370.0" y="225.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part C (the coach)</text>
+<text x="370.0" y="225.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part D (the coach)</text>
 <text x="370.0" y="245.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">looks for text, checks blur and glare</text>
 <rect x="45" y="200" width="140" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
 <text x="115.0" y="215.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Hint</text>
@@ -19,16 +19,16 @@
 <text x="280.0" y="350.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Full photo</text>
 <text x="280.0" y="370.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">normal mode: text is steady</text>
 <rect x="160" y="420" width="240" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="280.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part A</text>
+<text x="280.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part B</text>
 <text x="280.0" y="465.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">fix tilt, glare, shadows</text>
 <rect x="160" y="520" width="240" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="280.0" y="545.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">text_vision.py</text>
+<text x="280.0" y="545.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part A</text>
 <text x="280.0" y="565.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">picture to text</text>
 <rect x="440" y="330" width="260" height="50" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
 <text x="570.0" y="350.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Full photo of the page</text>
 <text x="570.0" y="370.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">book mode: a page was turned</text>
 <rect x="440" y="420" width="260" height="100" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="570.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part B (book mode)</text>
+<text x="570.0" y="445.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part C (book mode)</text>
 <text x="570.0" y="465.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">split the two pages, find the page number,</text>
 <text x="570.0" y="485.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">order the paragraphs</text>
 <text x="570.0" y="505.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">(uses the same fixer and reader)</text>

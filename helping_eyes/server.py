@@ -45,8 +45,7 @@ from pydantic import BaseModel
 
 from commands import classify
 from doc_assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
-from vision import BookReader, BookWatcher, LiveGuide, read_page
-from text_vision import find_text_region, read_text_enhanced
+from vision import BookReader, BookWatcher, LiveGuide, find_text_region, read_page, read_text_enhanced
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("helping_eyes.web")

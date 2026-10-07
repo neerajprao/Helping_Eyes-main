@@ -90,12 +90,12 @@ flowchart TB
         CMD["commands.py<br/>command or question?"]
 
         subgraph VIS["vision.py"]
-            PC["Part C: live guidance<br/>hints, hold still, capture, page turns"]
-            PB["Part B: book mode<br/>spine, page numbers, reading order,<br/>resume after the view moves"]
-            PA["Part A: image quality and page geometry<br/>blur / glare, flatten, dewarp, shadows"]
+            LIVE["Part D: live guidance<br/>hints, hold still, capture, page turns"]
+            BOOKM["Part C: book mode<br/>spine, page numbers, reading order,<br/>resume after the view moves"]
+            QUAL["Part B: image quality and page geometry<br/>blur / glare, flatten, dewarp, shadows"]
+            OCRP["Part A: reading text (OCR)<br/>RapidOCR"]
         end
 
-        OCR["text_vision.py<br/>RapidOCR"]
         DA["doc_assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
     end
 
@@ -107,16 +107,16 @@ flowchart TB
     CAM --> BK
     MIC --> ASK
 
-    WS --> PC
-    BK --> PC
-    PC --> PB
-    PC --> PA
-    CAP --> PA
-    PB --> PA
-    PA --> OCR
-    PC --> OCR
-    PB --> OCR
-    PB -- page text and facts --> DA
+    WS --> LIVE
+    BK --> LIVE
+    LIVE --> BOOKM
+    LIVE --> QUAL
+    CAP --> QUAL
+    BOOKM --> QUAL
+    QUAL --> OCRP
+    LIVE --> OCRP
+    BOOKM --> OCRP
+    BOOKM -- page text and facts --> DA
     CAP -- text --> DA
     ASK --> CMD
     CMD --> DA
@@ -137,16 +137,16 @@ flowchart TB
 | Stage | Component | Description |
 |---|---|---|
 | Image acquisition | Browser camera (`getUserMedia`) | Rear camera at up to 1080p; small preview frames go to the server over a WebSocket, the full-size photo only when capturing |
-| Text detection | OCR engine, fast check (`text_vision.py`) | Locates every line of text in each preview frame |
-| User guidance | `vision.py`, part C (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
+| Text detection | RapidOCR, quick check (`vision.py`, part A) | Locates every line of text in each preview frame |
+| User guidance | `vision.py`, part D (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
 | Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own |
 | Understanding | Language model API (Gemini Flash-Lite by default; `doc_assistant.py`) | Reads requested parts or answers questions using only the captured text |
 | Expiry checks | `doc_assistant.py` | Expiry dates are compared with the current date in code, not by the model |
 | Web lookup | DuckDuckGo (`ddgs`) and the language model | Used only with the user's consent; answers are prefixed with "According to the web" |
-| Image quality | OpenCV layer (`vision.py`, part A) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
-| Book reading | OpenCV pipeline (`vision.py`, parts B and C) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
+| Image quality | OpenCV layer (`vision.py`, part B) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
+| Book reading | OpenCV pipeline (`vision.py`, parts C and D) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
 | Text-to-speech | Browser `speechSynthesis` | Queued, interruptible speech; the word being spoken is reported back for the on-screen highlight |
 
 ---
@@ -157,19 +157,17 @@ flowchart TB
 Helping_Eyes-main/
 ├── helping_eyes/           # The application: one codebase for a laptop and for the cloud
 │   ├── server.py           # FastAPI server: live stream, capture, book pages, requests, health
-│   ├── vision.py           # All the computer vision, in three parts: A image quality, B book mode, C live guidance
+│   ├── vision.py           # All the computer vision in four parts: A reading text (OCR), B image quality, C book mode, D live guidance
 │   ├── commands.py         # What a spoken or typed request means
 │   ├── doc_assistant.py    # Question answering through a language model API, expiry checks, web lookup
-│   ├── text_vision.py      # OCR: RapidOCR (runs on any CPU)
 │   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
-│   ├── tests/              # test_page_enhance, test_commands, test_live, test_server
-│   ├── requirements.txt    # Dependencies (laptop and cloud)
+│   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm and server
 │   └── .env.example        # Optional settings (copy to .env)
 ├── docs/                   # Diagram and screenshots used in this README (make_architecture.py redraws the diagram)
 ├── presentation/           # Slides, narrated video, script and the course requirements document
 ├── .github/workflows/      # check.yml: runs the tests on every push
-├── requirements.txt        # Same as helping_eyes/requirements.txt
+├── requirements.txt        # The only requirements file: every dependency (laptop, tests, cloud image)
 ├── working.md              # Plain-language explanation of every file and of a request's life cycle
 └── README.md
 ```
@@ -177,10 +175,9 @@ Helping_Eyes-main/
 | File | Main components |
 |---|---|
 | `server.py` | `/ws/live` (preview frames in, guidance and page turns out) · `/api/capture` (photo → text) · `/api/book/page` (book view → what to read, from where, and the page layout) · `/api/ask` (one request → commands, answers, web lookup, streamed as NDJSON) · `/api/health` · one session per browser (30 min) and a per-client rate limit |
-| `vision.py` | **Part A, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part B, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part C, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
+| `vision.py` | **Part A, reading text (OCR):** `find_text_region()` for live detection · `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read · **Part B, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part C, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part D, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
 | `commands.py` | `classify()` turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question |
 | `doc_assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
-| `text_vision.py` | `find_text_region()` for live detection · `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read |
 | `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output with word tracking · hands-free speech input with an echo guard · keyboard shortcuts. It holds no decision logic |
 
 ---
@@ -264,7 +261,7 @@ The camera works on `http://localhost` and on any `https://` address, but not on
 
 The app is a single container that needs no model server or GPU: `helping_eyes/cloud/Dockerfile` builds it, and the only secret it needs is `LLM_API_KEY`. It reads the port from `$PORT` (default 7860), so it runs on any host that runs Docker. Two free options:
 
-- **Render (free web service):** WebSockets are supported, which the live camera feed needs. Create a Web Service from this repository, choose the Docker runtime, set *Root Directory* to `helping_eyes` and *Dockerfile Path* to `cloud/Dockerfile`, and add `LLM_API_KEY` under *Environment*. A free service sleeps after about 15 minutes idle and has 512 MB of memory, which may be tight for OCR, so check memory use before relying on it.
+- **Render (free web service):** WebSockets are supported, which the live camera feed needs. Create a Web Service from this repository, choose the Docker runtime, leave *Root Directory* empty (the repository's top folder, where `requirements.txt` is) and set *Dockerfile Path* to `helping_eyes/cloud/Dockerfile`, and add `LLM_API_KEY` under *Environment*. A free service sleeps after about 15 minutes idle and has 512 MB of memory, which may be tight for OCR, so check memory use before relying on it.
 - **Hugging Face Spaces (Docker):** create the Space, add `LLM_API_KEY` under *Settings → Variables and secrets*, then run `HF_TOKEN=hf_xxx ./helping_eyes/cloud/deploy_space.sh <your-username>`. Reports say Docker Spaces may now require a paid plan, so check your account first.
 
 Neither host has been tested with this version yet. After deploying, open `/api/health`: `llm_configured` must be `true`. A free service sleeps when unused, so open the URL a few minutes before a demo.
@@ -319,7 +316,7 @@ The microphone listens only while the application is silent, so that it does not
 
 ## Computer Vision: Book Reading Mode
 
-Book mode reads a book page by page without manual interaction: the user opens the book in front of the camera, listens, and turns the page. The OCR engine recognises the characters of each line; **the decisions of when to read, where each page lies and in what order to read are made by the project's own OpenCV pipeline** in [`vision.py`](helping_eyes/vision.py) (parts B and C).
+Book mode reads a book page by page without manual interaction: the user opens the book in front of the camera, listens, and turns the page. The OCR engine recognises the characters of each line; **the decisions of when to read, where each page lies and in what order to read are made by the project's own OpenCV pipeline** in [`vision.py`](helping_eyes/vision.py) (parts C and D).
 
 <img src="docs/book_mode_overlay.jpg" width="720" alt="Book mode overlay on a synthetic two-page spread: spine line in yellow, page numbers and running title outlined in purple, paragraph boxes in green numbered 1 to 6 in reading order">
 
@@ -401,7 +398,7 @@ If the camera or the book moves, the new view is compared with the page being re
 | View moved mid-read (camera shifted 320 px; top lines left, new lines entered) | Reading continued from the exact word reached, with no new-page announcement; the newly visible lines were then read |
 | Different page after reading | Detected as a new page and read from the beginning |
 | Processing time | Page-turn detector 0.2 ms per frame; spine and layout analysis 8 ms; full page including recognition and word boxes about 0.4–0.9 s |
-| Automated tests | 50 tests: image layer (10), commands (5), live guidance and book-page decisions (16), language-model client against a fake provider (10), server endpoints and WebSocket with real OCR (9) |
+| Automated tests | 85 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (10), server endpoints and WebSocket with real OCR (9) |
 | End to end in Chrome, fake camera filming a medicine label | Guidance, automatic capture (0.6 s), "read everything" and the expiry answer worked; in book mode with a looping two-page video, page turns were detected, announced and read (each page request 0.24–0.41 s). The language model itself was tested against a fake provider, not the real Gemini service |
 
 The principal benefits of book mode are hands-free page turning, identification of the printed page number and title on any page, correct handling of two-page spreads and headers, paragraph structure, and the reading position highlight.

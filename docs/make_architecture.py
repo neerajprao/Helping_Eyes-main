@@ -35,13 +35,13 @@ panel(770,70,700,675,"Voice / typing path","#fff7ed")
 I="#1d4ed8"; V="#c2410c"
 # camera path
 box(210,105,320,50,["INPUT 1: camera pictures"],"#dbeafe",I)
-box(210,195,320,70,["vision.py, part C (the coach)","looks for text, checks blur and glare"],"#fff",I)
+box(210,195,320,70,["vision.py, part D (the coach)","looks for text, checks blur and glare"],"#fff",I)
 box(45,200,140,60,["Hint","move closer, left,","hold still"],"#fff",I)
 box(160,330,240,50,["Full photo","normal mode: text is steady"],"#fff",I)
-box(160,420,240,60,["vision.py, part A","fix tilt, glare, shadows"],"#fff",I)
-box(160,520,240,60,["text_vision.py","picture to text"],"#fff",I)
+box(160,420,240,60,["vision.py, part B","fix tilt, glare, shadows"],"#fff",I)
+box(160,520,240,60,["vision.py, part A","picture to text"],"#fff",I)
 box(440,330,260,50,["Full photo of the page","book mode: a page was turned"],"#fff",I)
-box(440,420,260,100,["vision.py, part B (book mode)","split the two pages, find the page number,","order the paragraphs","(uses the same fixer and reader)"],"#fff",I)
+box(440,420,260,100,["vision.py, part C (book mode)","split the two pages, find the page number,","order the paragraphs","(uses the same fixer and reader)"],"#fff",I)
 box(440,550,260,55,["Page text","+ where each word is"],"#fff",I)
 box(210,665,320,60,["Captured text","saved for questions"],"#e0e7ff",I)
 # voice path

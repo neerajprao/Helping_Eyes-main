@@ -1,7 +1,7 @@
 """
-Tests for vision.py part A (image quality and page geometry) on synthetic pages (no camera, no OCR needed):
+Tests for vision.py part B (image quality and page geometry) on synthetic pages (no camera, no OCR needed):
 
-    python tests/test_page_enhance.py        (or: python -m pytest tests/test_page_enhance.py)
+    python tests/test_vision_quality.py        (or: python -m pytest tests/test_vision_quality.py)
 
 A text page is rendered, then degraded in a known way, so each layer can be
 checked against the truth: perspective, curved lines, blur, glare, darkness.
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import cv2
 import numpy as np
 
-import vision as pe
+import vision
 
 W, H = 900, 1200
 WORDS = "the quick brown fox jumps over a lazy dog while reading books by night".split()
@@ -48,54 +48,54 @@ def curve(page: np.ndarray, amplitude: float = 30) -> np.ndarray:
 
 
 def test_quality_sharp_page_is_ok():
-    report = pe.assess_quality(make_page())
+    report = vision.assess_quality(make_page())
     assert report.ok, report.summary()
 
 
 def test_quality_detects_blur():
-    report = pe.assess_quality(cv2.GaussianBlur(make_page(), (0, 0), 4))
+    report = vision.assess_quality(cv2.GaussianBlur(make_page(), (0, 0), 4))
     assert "blurry" in report.problems and "Hold still" in report.hint(), report.summary()
 
 
 def test_quality_detects_glare_and_side():
     page = make_page()
     cv2.circle(page, (760, 300), 110, (255, 255, 255), -1)
-    report = pe.assess_quality(page)
+    report = vision.assess_quality(page)
     assert "glare" in report.problems, report.summary()
     assert report.glare_at[0] > 0.62 and "on the right" in report.hint(), (report.glare_at, report.hint())
 
 
 def test_quality_detects_dark():
     dark = (make_page() * 0.15).astype(np.uint8)
-    assert "dark" in pe.assess_quality(dark).problems
+    assert "dark" in vision.assess_quality(dark).problems
 
 
 def test_page_quad_and_warp_flatten_perspective():
     quad = np.array([[250, 120], [1010, 190], [1080, 850], [170, 820]])
     frame = on_desk(make_page(), quad)
-    found = pe.find_page_quad(frame)
+    found = vision.find_page_quad(frame)
     assert found is not None, "page not found"
     assert np.abs(found - quad).max() < 25, (found, quad)
-    warped, matrix = pe.warp_page(frame)
+    warped, matrix = vision.warp_page(frame)
     assert matrix is not None
     # Flat again: text lines are horizontal, so their row profile is crisp
-    assert pe._profile_sharpness(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)) > \
-        1.5 * pe._profile_sharpness(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+    assert vision._profile_sharpness(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)) > \
+        1.5 * vision._profile_sharpness(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
 
 
 def test_flat_full_frame_page_is_left_alone():
-    warped, matrix = pe.warp_page(make_page())
+    warped, matrix = vision.warp_page(make_page())
     assert matrix is None and warped.shape == (H, W, 3)
 
 
 def test_dewarp_straightens_curved_lines_and_maps_boxes_back():
     original = make_page()
     bent = curve(original, amplitude=30)
-    model = pe.estimate_dewarp(bent)
+    model = vision.estimate_dewarp(bent)
     assert model is not None, "curvature not found"
-    flat = pe.dewarp(bent, model)
+    flat = vision.dewarp(bent, model)
     gray = lambda im: cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-    assert pe._profile_sharpness(gray(flat)) > 1.3 * pe._profile_sharpness(gray(bent))
+    assert vision._profile_sharpness(gray(flat)) > 1.3 * vision._profile_sharpness(gray(bent))
     # The fitted shift matches the truth (30 * (x/W)^2, up to a constant) within 4 px
     xs = np.linspace(100, W - 100, 9)
     fitted = model.shift(xs) - model.shift(xs[0])
@@ -104,28 +104,28 @@ def test_dewarp_straightens_curved_lines_and_maps_boxes_back():
     # A box found on the flat image maps back onto the bent line
     x1, x2 = 700, 850
     y_flat = 80 + 10 * 38
-    back = pe.unwarp_box((x1, y_flat - 20, x2, y_flat + 8), model)
+    back = vision.unwarp_box((x1, y_flat - 20, x2, y_flat + 8), model)
     y_bent = y_flat + 30 * ((775 / W) ** 2)
     assert back[1] - 6 <= y_bent - 6 and back[3] + 6 >= y_bent, (back, y_bent)
 
 
 def test_dewarp_leaves_a_flat_page_alone():
-    assert pe.estimate_dewarp(make_page()) is None
+    assert vision.estimate_dewarp(make_page()) is None
 
 
 def test_enhance_tone_removes_shadow():
     page = make_page()
     gradient = np.linspace(0.25, 1.0, W, dtype=np.float32).reshape(1, W, 1)     # shadow on the left
     shadowed = (page * gradient).astype(np.uint8)
-    fixed = pe.enhance_tone(shadowed)
+    fixed = vision.enhance_tone(shadowed)
     left = lambda im: float(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)[:, :150].mean())
     right = lambda im: float(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)[:, -150:].mean())
     assert abs(left(fixed) - right(fixed)) < 0.5 * abs(left(shadowed) - right(shadowed))
 
 
 def test_capture_candidates_only_add_work_when_needed():
-    assert [n for n, _ in pe.capture_candidates(make_page())] == ["original"]
-    names = [n for n, _ in pe.capture_candidates((make_page() * 0.15).astype(np.uint8))]
+    assert [n for n, _ in vision.capture_candidates(make_page())] == ["original"]
+    names = [n for n, _ in vision.capture_candidates((make_page() * 0.15).astype(np.uint8))]
     assert "tone" in names
 
 
