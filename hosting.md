@@ -94,7 +94,7 @@ To update the live app later, push your changes again (Render rebuilds by itself
 ## Things to know
 
 - **Free hosts go to sleep.** When nobody visits for a while the app sleeps, and the next visit wakes it up, which takes about a minute. Open the address a few minutes before a demo.
-- **Memory.** Render's free plan has 512 MB. The OCR may need more than that, so watch the memory graph after your first deploy. If the app keeps restarting, it needs a bigger plan.
+- **Memory: Render's free plan is too small.** I measured the OCR here: about 375 MB once its models are loaded, and 770 MB to 980 MB while reading a full photo or a book page. Render's free plan allows 512 MB, so the app is killed the first time it reads a picture. It then restarts, and for a minute every request gets the host's HTML error page. The page shows this as "The server is not responding... out of memory" (older versions showed "Unexpected token '<'"). Check the host's Logs for "out of memory" or restarts, and its Metrics for the memory spike. Fix it by using a host or plan with at least 2 GB; shrinking the pictures did not help enough (the smallest setting I tried still peaked near 650 MB and was 2 to 3 times slower).
 - **Run only one copy.** Each visitor's captured text and conversation are kept in the server's memory, so two copies would not share them. A restart clears them.
 - **Hugging Face may need a paid plan.** One report says Docker Spaces now need one, so check your account before you start.
 - **The free Gemini limits.** The free AI plan has a daily limit. When it is used up, the app says the model is busy. Expiry questions, page-number questions and "read everything" never use the AI, so they keep working.

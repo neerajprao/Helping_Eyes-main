@@ -181,6 +181,19 @@ function onLiveReply(reply) {
   }
 }
 
+// What went wrong with a request, in words. The server answers errors with JSON ({"detail": ...});
+// when the host itself is down, restarting or out of memory it answers with an HTML page instead.
+async function failure(res) {
+  try {
+    const detail = (await res.json()).detail;
+    if (detail) return detail;
+  } catch (err) { /* not JSON: fall through */ }
+  if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 0) {
+    return "The server is not responding. It may be starting up, or it ran out of memory and is restarting. Wait a minute and try again.";
+  }
+  return "The server answered with an error (" + res.status + "). Try again.";
+}
+
 // ================================================================ capture (normal mode)
 function showCaptured(data) {
   $("captured").hidden = false;
@@ -194,7 +207,7 @@ async function postCapture(blob, book) {
   form.append("sid", sid);
   form.append("book", book ? "true" : "false");
   const res = await fetch("/api/capture", { method: "POST", body: form });
-  if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+  if (!res.ok) throw new Error(await failure(res));
   return res.json();
 }
 
@@ -328,7 +341,7 @@ async function handleBookEvent(event) {
     form.append("reading", String(reading));
     form.append("thinking", String(thinking));
     const res = await fetch("/api/book/page", { method: "POST", body: form });
-    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    if (!res.ok) throw new Error(await failure(res));
     const r = await res.json();
     if (mode !== "book") return;
 
@@ -384,7 +397,7 @@ async function ask(text) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sid, question: text }), signal: mine.signal,
     });
-    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    if (!res.ok) throw new Error(await failure(res));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";

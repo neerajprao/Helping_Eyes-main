@@ -479,6 +479,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo may rate-limit requests; wait a minute and try again. |
 | The web lookup is never offered | The offer appears only when the answer is not in the text, and never for expiry, batch or price. Say "look it up" to search directly. |
 | The first answer is slow | Free model tiers can be slow at busy times. Try again, or choose another model with `LLM_MODEL`. |
+| "The server is not responding... out of memory" (or "Unexpected token '<'" in an older version) | The host returned its own error page instead of an answer: the app is starting up, or it ran out of memory and was restarted. The OCR needs roughly 400 MB to 1 GB while it reads, so Render's free 512 MB plan is too small; use a host with at least 2 GB. Check the host's logs and memory graph. |
 | The camera does not start | Allow camera access in the browser (the padlock in the address bar). Another application (FaceTime, Zoom) may be using it. Use `http://localhost` or HTTPS, or the Upload photo fallback. |
 | The wrong camera opens | Choose another camera in the browser's camera settings; on a phone the rear camera is requested. |
 | Stuck on SHOW TEXT HERE | Check that the page is connected (the server log shows the live stream). Move closer and make sure the text is well lit and inside the guide box. |
