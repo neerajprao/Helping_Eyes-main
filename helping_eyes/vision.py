@@ -70,7 +70,6 @@ class QualityReport:
     sharpness: float = 0.0                       # variance of the Laplacian (higher = sharper)
     brightness: float = 0.0                      # mean grey level, 0-255
     contrast: float = 0.0                        # std of grey levels
-    clipped_dark: float = 0.0                    # fraction of near-black pixels
     clipped_bright: float = 0.0                  # fraction of near-white pixels
     glare_fraction: float = 0.0                  # fraction of the image inside glare blobs
     glare_at: Optional[Tuple[float, float]] = None   # centre of the glare, 0-1 (x from the left, y from the top)
@@ -129,7 +128,6 @@ def assess_quality(image: np.ndarray, text_box: Optional[Box] = None) -> Quality
         sharpness=float(cv2.Laplacian(text, cv2.CV_64F).var()),
         brightness=float(full.mean()),
         contrast=float(full.std()),
-        clipped_dark=float((full < 15).mean()),
         clipped_bright=float((full > 245).mean()),
     )
 
@@ -811,7 +809,7 @@ def split_page_parts(lines: List[TextLine]) -> Tuple[List[TextLine], List[TextLi
 def xy_cut(lines: List[TextLine], columns: Optional[List[Box]] = None) -> List[List[TextLine]]:
     """
     Recursive XY-cut, a classic document layout algorithm, run on the boxes of
-    the lines Apple Vision recognised (reliable whenever the text is readable):
+    the lines the OCR recognised (reliable whenever the text is readable):
 
       1. Vertical cut: project the line boxes onto the x axis. An empty band
          between them that is wider than a column gap splits the region into
@@ -906,23 +904,6 @@ class PageLayout:
     paragraphs: List[Tuple[int, int]] = field(default_factory=list)  # (start, end) in the page text
     pages: List[PageInfo] = field(default_factory=list)              # left to right
 
-    def line_at(self, pos: int) -> Optional[LineSpan]:
-        """The printed line that contains character `pos` of the page text."""
-        for span in self.lines:
-            if span.start <= pos < span.end:
-                return span
-        return None
-
-    def word_at(self, pos: int) -> Optional[Box]:
-        """Screen box of the word at character `pos` (or the next word on that line)."""
-        span = self.line_at(pos)
-        if span is None:
-            return None
-        for start, end, box in span.words:
-            if pos < end:
-                return box
-        return None
-
     def page_numbers(self) -> List[str]:
         """Printed page numbers, left to right. A missing number on one side of
         a spread is inferred from the facing page (left = right - 1)."""
@@ -985,7 +966,7 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
     text = ""
     for x_start, x_end in pages:
         image, model = prepare_page(frame[:, x_start:x_end], report) if enhance else (frame[:, x_start:x_end], None)
-        lines = [_shift(_unwarp(l, model), x_start) for l in recognize_text(image, fast=False, word_boxes=True)
+        lines = [_shift(_unwarp(l, model), x_start) for l in recognize_text(image, word_boxes=True)
                  if l.text.strip()]
         body, margin_lines, info = split_page_parts(lines)
         layout.pages.append(info)
@@ -1030,7 +1011,7 @@ def _unproject_layout(layout: PageLayout, matrix: np.ndarray, flat_height: int) 
 
 def read_page(frame: np.ndarray, split: bool = True, enhance: bool = False) -> Tuple[str, PageLayout]:
     """
-    Split the spread, read each page with Apple Vision, separate headers and
+    Split the spread, read each page with the OCR, separate headers and
     footers (page number, running title), and order the body text with XY-cut.
     Paragraphs are separated by a blank line; lines within a paragraph are
     joined with spaces (re-joining words hyphenated across lines). The layout

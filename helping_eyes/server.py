@@ -16,10 +16,10 @@ recognition and speech output; the server does everything else:
 Run it:
     uvicorn server:app --port 7860          (then open http://localhost:7860)
 
-Settings (environment or .env), the same for every deployment:
-    OCR_ENGINE   apple (macOS default) or rapidocr (everywhere else)
-    LLM_MODEL    qwen2.5:7b-instruct by default; the cloud image sets qwen2.5:3b-instruct
-    OLLAMA_HOST  Ollama address (default http://localhost:11434)
+Settings (environment or .env), the same on a laptop and in the cloud:
+    LLM_API_KEY   key for the language model API (required)
+    LLM_MODEL     model name (default gemini-2.5-flash-lite)
+    LLM_BASE_URL  any OpenAI-compatible chat API (default: Google Gemini's)
 """
 
 import json
@@ -37,7 +37,6 @@ load_dotenv()
 
 import cv2
 import numpy as np
-import requests
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
@@ -45,9 +44,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from commands import classify
-from doc_assistant import LLM_MODEL, OLLAMA_HOST, READ_ALL, DocAssistant, web_lookup_allowed
+from doc_assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
 from vision import BookReader, BookWatcher, LiveGuide, read_page
-from text_vision import OCR_ENGINE, find_text_region, read_text_enhanced
+from text_vision import find_text_region, read_text_enhanced
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("helping_eyes.web")
@@ -156,9 +155,8 @@ def _decode(data: bytes, max_side: int = MAX_SIDE) -> np.ndarray:
 # ---------------- API ----------------
 @app.on_event("startup")
 def _warm_up() -> None:
-    # Load the language model and the OCR engine in the background so the first request is fast
+    # Load the OCR models in the background so the first request is fast
     def work():
-        DocAssistant().warm_up()
         # Real text, not a blank image: the OCR models only load when they have something to read,
         # and the first capture would otherwise take many seconds
         sample = np.full((240, 900, 3), 255, np.uint8)
@@ -183,13 +181,8 @@ def favicon() -> FileResponse:
 
 @app.get("/api/health")
 def health() -> dict:
-    try:
-        tags = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=3).json()
-        models = [m["name"] for m in tags.get("models", [])]
-        model_ready = any(m.split(":")[0] == LLM_MODEL.split(":")[0] and m.endswith(LLM_MODEL.split(":")[-1]) for m in models)
-    except Exception:
-        model_ready = False
-    return {"status": "ok", "model": LLM_MODEL, "model_ready": model_ready, "ocr": OCR_ENGINE}
+    # No request to the language model here: free API plans count every call
+    return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY)}
 
 
 @app.post("/api/capture")

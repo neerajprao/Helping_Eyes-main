@@ -45,6 +45,7 @@ def test_health_and_page():
     assert client.get("/").status_code == 200
     health = client.get("/api/health").json()
     assert health["status"] == "ok"
+    assert health["model"] and "llm_configured" in health
 
 
 def test_bad_inputs_are_rejected():

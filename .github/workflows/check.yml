@@ -16,12 +16,13 @@ jobs:
       - name: Compile everything
         working-directory: helping_eyes
         run: python -m py_compile server.py commands.py vision.py doc_assistant.py text_vision.py
-      - name: Image layer, commands and live-guidance tests (no OCR or model needed)
+      - name: Image layer, commands, live guidance and model-client tests (no OCR, key or model needed)
         working-directory: helping_eyes
         run: |
           python tests/test_page_enhance.py
           python tests/test_commands.py
           python tests/test_live.py
+          python tests/test_llm.py
       - name: Server tests (RapidOCR reads a rendered label; no language model needed)
         working-directory: helping_eyes
         run: python tests/test_server.py

@@ -22,10 +22,10 @@ You can run the same app on your own laptop or on the internet (Hugging Face). O
 | `server.py` | The front desk of the server. It receives camera pictures, photos and questions from the browser and sends back guidance and answers. It also remembers each person's item and conversation for 30 minutes. |
 | `vision.py` | All the computer vision (looking at pictures), in three parts, so it is easy to find:<br>**Part A, the photo fixer:** measures blur, glare and darkness, straightens a tilted page, flattens a curved page and brightens shadows, so the reader gets a cleaner picture.<br>**Part B, the book expert:** finds the middle of an open book, splits the two pages, finds page numbers and titles, puts paragraphs in the right reading order, and keeps your place if the book moves a little.<br>**Part C, the coach:** looks at the live camera pictures and decides "move closer", "move left", "too blurry", "hold still" and "now take the photo". In book mode it notices when you turn a page and decides what to read next. |
 | `commands.py` | The listener. It decides if what you said is a command ("stop", "next", "book mode", "yes", "no", "look it up") or a question for the AI. |
-| `doc_assistant.py` | The answerer. It keeps the text that was captured and talks to the AI model (Qwen, through Ollama). It only answers from the captured text. It works out expiry dates itself, because small AI models get dates wrong. It can search the web, but only if you say yes. |
-| `text_vision.py` | The reader. It turns a picture into text (OCR). It uses Apple Vision on a Mac and RapidOCR everywhere else. |
+| `doc_assistant.py` | The answerer. It keeps the text that was captured and talks to an AI chat model over the internet (Gemini Flash-Lite by default; any provider with an OpenAI-style API works). It only answers from the captured text. It works out expiry dates itself, because small AI models get dates wrong. It can search the web, but only if you say yes. |
+| `text_vision.py` | The reader. It turns a picture into text (OCR). It uses RapidOCR, which runs on any computer without special hardware. |
 | `requirements.txt` | The shopping list of Python packages the app needs. |
-| `.env.example` | A sample of the optional settings (for example which AI model to use). Copy it to `.env` to change them. |
+| `.env.example` | A sample of the settings. Copy it to `.env` and put your AI key in it (the only required setting); you can also change the model or provider there. |
 
 ### The face (`helping_eyes/web/`)
 
@@ -40,8 +40,8 @@ You can run the same app on your own laptop or on the internet (Hugging Face). O
 
 | File | What it does |
 |---|---|
-| `Dockerfile` | The recipe that builds the app into a package that runs on Hugging Face (it includes the AI model). |
-| `start.sh` | The start button inside that package: starts the AI model, then the server. |
+| `Dockerfile` | The recipe that builds the app into a package that runs on any host that runs Docker (Render, Hugging Face and others). There is no AI model inside; the app calls one over the internet. |
+| `start.sh` | The start button inside that package: starts the server. |
 | `deploy_space.sh` | One command that gathers the right files and uploads them to Hugging Face. |
 | `README.md` | The description card shown on the Hugging Face page. |
 
@@ -61,11 +61,11 @@ You can run the same app on your own laptop or on the internet (Hugging Face). O
 | `README.md` | The full project report: problem, design, how to run it, results, limits. |
 | `working.md` | This file. |
 | `requirements.txt` (top level) | Just points to the one inside `helping_eyes/`, so you can install from the top folder. |
-| `docs/` | Pictures used in the README: the architecture diagram and book-mode screenshots. |
+| `docs/` | Pictures used in the README: the architecture diagram and book-mode screenshots. `make_architecture.py` redraws the diagram (`python docs/make_architecture.py`) whenever the architecture changes. |
 | `presentation/` | The slides, the narrated video, the script and the course requirements document. |
 | `.github/workflows/check.yml` | Makes GitHub run all the tests automatically whenever code is pushed. |
-| `graphify-out/` | A map of the code made by a helper tool. Not part of the app. |
-| `.gitignore` | Tells git which files to ignore (like your private `.env`). |
+| `graphify-out/` | A map of the code made by a helper tool (graphify). Not part of the app, and ignored by git, so it is never committed. |
+| `.gitignore` | Tells git which files to ignore: your private `.env`, the `.venv` folder, `__pycache__` and `graphify-out/`. |
 
 ---
 
@@ -94,10 +94,10 @@ flowchart TD
     VOICE --> STT["Browser: speech to text"]
     STT --> CMD["commands.py<br/>command or question?"]
     CMD -->|command: stop, repeat,<br/>next, book mode| ACT["Do it"]
-    CMD -->|question| AI["doc_assistant.py + Qwen AI<br/>answers only from the saved text"]
+    CMD -->|question| AI["doc_assistant.py + AI chat model<br/>answers only from the saved text"]
     SAVED --> AI
     AI -->|answer is in the text| ANSWER["Answer, sentence by sentence"]
-    AI -->|not in the text and you say yes| WEB["DuckDuckGo search,<br/>then Qwen answers from the results"]
+    AI -->|not in the text and you say yes| WEB["DuckDuckGo search,<br/>then the AI answers from the results"]
     WEB --> ANSWER
 
     HINT --> OUT
@@ -115,5 +115,5 @@ flowchart TD
    - A normal photo is cleaned by the photo fixer (`vision.py`, part A), then turned into text by `text_vision.py`, and the text is saved.
    - A book photo goes through the book expert (`vision.py`, part B), which splits the pages, finds the page number and puts the paragraphs in order (using the photo fixer and the reader). The page is read out straight away and also saved.
 4. **Understanding you:** your voice becomes text in the browser. `commands.py` decides if it is a command ("stop", "next") or a question.
-5. **Answering:** commands are just done. Questions go to `doc_assistant.py`, which asks the Qwen AI to answer using only the saved text. If the text does not have the answer, it offers a web search and searches only if you say yes.
+5. **Answering:** commands are just done. Questions go to `doc_assistant.py`, which asks the AI chat model to answer using only the saved text. If the text does not have the answer, it offers a web search and searches only if you say yes.
 6. **Output:** everything comes back to the browser, which speaks it aloud and shows it on screen. While a book page is being read, the word being spoken is highlighted.

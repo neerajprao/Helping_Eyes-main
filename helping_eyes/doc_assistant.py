@@ -1,15 +1,12 @@
 """
-Question answering over captured text, using a local Qwen 2.5 7B Instruct model
-served by Ollama (https://ollama.com), with an optional web lookup (DuckDuckGo)
-when the captured text doesn't contain the answer.
+Question answering over captured text, using any chat language model that speaks the
+OpenAI-style chat API (Gemini, Groq, OpenRouter, OpenAI, a local server, ...), with an
+optional web lookup (DuckDuckGo) when the captured text doesn't contain the answer.
 
-Setup:
-    ollama pull qwen2.5:7b-instruct
-    (keep the Ollama app open, or run `ollama serve`)
-
-Optional .env settings:
-    OLLAMA_HOST = http://localhost:11434
-    LLM_MODEL   = qwen2.5:7b-instruct
+Settings (environment or .env); nothing here is specific to one provider:
+    LLM_BASE_URL  chat API address (default: Google Gemini's OpenAI-compatible endpoint)
+    LLM_API_KEY   the provider's API key
+    LLM_MODEL     model name (default: gemini-2.5-flash-lite)
 """
 
 import json
@@ -25,11 +22,12 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b-instruct")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").rstrip("/")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash-lite")
 
 # The model replies with exactly this when the user wants everything read out;
-# the app then speaks Apple Vision's text itself instead of the model's version.
+# the app then speaks the OCR text itself instead of the model's version.
 READ_ALL = "READ_ALL"
 
 # The model starts its reply with this tag when the captured text doesn't hold
@@ -102,6 +100,12 @@ Question: {question}
 
 Web results:
 {results}"""
+
+MSG_UNREACHABLE = "I can't reach the language model. Please check the internet connection."
+MSG_NO_KEY = "No API key is set for the language model. Please set LLM_API_KEY."
+MSG_BAD_KEY = "The language model rejected the request. Please check the API key."
+MSG_BUSY = "The language model is busy right now, or today's free limit is used up. Please try again in a minute."
+MSG_FAILED = "Sorry, something went wrong while thinking about that."
 
 # Split finished sentences out of a growing stream of text. A sentence only
 # counts as finished once whitespace and a capital letter follow, so "0.5%"
@@ -216,6 +220,10 @@ def web_search(query: str, max_results: int = 5) -> List[dict]:
     return DDGS(timeout=10).text(query, max_results=max_results) or []
 
 
+def _headers() -> dict:
+    return {"Content-Type": "application/json", **({"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {})}
+
+
 class DocAssistant:
     """Keeps the captured text plus the conversation about it."""
 
@@ -257,18 +265,6 @@ class DocAssistant:
             self._generation += 1
 
     # ---------------- model ----------------
-    def warm_up(self) -> bool:
-        """Load the model into memory so the first question isn't slow."""
-        try:
-            r = requests.post(f"{OLLAMA_HOST}/api/generate",
-                              json={"model": LLM_MODEL, "keep_alive": "30m"}, timeout=120)
-            r.raise_for_status()
-            logger.info(f"{LLM_MODEL} loaded in Ollama")
-            return True
-        except Exception as e:
-            logger.error(f"Could not load {LLM_MODEL} from Ollama at {OLLAMA_HOST}: {e}")
-            return False
-
     def ask(self, question: str) -> Iterator[str]:
         """
         Answer from the captured text, streamed sentence by sentence.
@@ -345,16 +341,15 @@ class DocAssistant:
     def _search_query(self, question: str, document: str) -> Optional[str]:
         """Ask the model for a short search query that includes the product name."""
         try:
-            r = requests.post(f"{OLLAMA_HOST}/api/chat", json={
+            r = requests.post(f"{LLM_BASE_URL}/chat/completions", headers=_headers(), json={
                 "model": LLM_MODEL,
                 "messages": [{"role": "user", "content": QUERY_PROMPT.format(
                     document=document[:1500], question=question)}],
-                "stream": False,
-                "keep_alive": "30m",
-                "options": {"temperature": 0, "num_predict": 30},
+                "temperature": 0,
+                "max_tokens": 30,
             }, timeout=30)
             r.raise_for_status()
-            query = r.json()["message"]["content"].strip().strip('"').splitlines()[0]
+            query = r.json()["choices"][0]["message"]["content"].strip().strip('"').splitlines()[0]
             return query[:120] or None
         except Exception as e:
             logger.warning(f"Couldn't build a search query: {e}")
@@ -371,14 +366,9 @@ class DocAssistant:
         decided = not markers  # whether the reply's opening marker (if any) is known
         try:
             with requests.post(
-                f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model": LLM_MODEL,
-                    "messages": messages,
-                    "stream": True,
-                    "keep_alive": "30m",
-                    "options": {"temperature": 0.2, "num_ctx": 8192},
-                },
+                f"{LLM_BASE_URL}/chat/completions",
+                headers=_headers(),
+                json={"model": LLM_MODEL, "messages": messages, "stream": True, "temperature": 0.2},
                 stream=True,
                 timeout=(5, 120),
             ) as r:
@@ -387,10 +377,16 @@ class DocAssistant:
                     if generation != self._generation:
                         logger.info("Answer cancelled")
                         return
-                    if not raw:
-                        continue
-                    chunk = json.loads(raw)
-                    piece = chunk.get("message", {}).get("content", "")
+                    line = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
+                    if not line.startswith("data:"):
+                        continue                               # blank keep-alive lines, comments
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    choices = json.loads(payload).get("choices") or []
+                    choice = choices[0] if choices else {}
+                    piece = (choice.get("delta") or {}).get("content") or ""
+                    finished = bool(choice.get("finish_reason"))
                     answer += piece
                     buffer += piece
 
@@ -404,7 +400,7 @@ class DocAssistant:
                             yield found
                             buffer = head[len(found):].lstrip()
                             decided = True
-                        elif any(m.startswith(head) for m in markers) and not chunk.get("done"):
+                        elif any(m.startswith(head) for m in markers) and not finished:
                             continue  # could still turn into a marker
                         else:
                             decided = True
@@ -418,14 +414,22 @@ class DocAssistant:
                         if sentence:
                             yield sentence
 
-                    if chunk.get("done"):
+                    if finished:
                         break
-        except requests.exceptions.ConnectionError:
-            yield "I can't reach the language model. Please make sure Ollama is running."
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            logger.error(f"Language model returned HTTP {status}")
+            if not LLM_API_KEY and status in (400, 401, 403):
+                yield MSG_NO_KEY                               # providers answer a missing key with 400, 401 or 403
+            else:
+                yield MSG_BAD_KEY if status in (401, 403) else MSG_BUSY if status == 429 else MSG_FAILED
+            return
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            yield MSG_UNREACHABLE
             return
         except Exception as e:
             logger.error(f"Model error: {e}")
-            yield "Sorry, something went wrong while thinking about that."
+            yield MSG_FAILED
             return
 
         if generation == self._generation and buffer.strip():
