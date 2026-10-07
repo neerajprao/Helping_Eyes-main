@@ -162,7 +162,7 @@ Helping_Eyes-main/
 │   ├── assistant.py    # Question answering through a language model API, expiry checks, web lookup
 │   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
-│   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm, server and run
+│   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm, server, run and web_mic
 │   └── .env.example        # Optional settings (copy to .env)
 ├── docs/                   # Diagrams and screenshots used in the docs (make_architecture.py and make_hosting.py redraw the diagrams)
 ├── presentation/           # Slides, narrated video, script and the course requirements document
@@ -180,7 +180,7 @@ Helping_Eyes-main/
 | `vision.py` | **Part A, reading text (OCR):** `find_text_region()` for live detection · `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read · **Part B, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part C, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part D, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
 | `commands.py` | `classify()` turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question |
 | `assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
-| `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output with word tracking · hands-free speech input with an echo guard · keyboard shortcuts. It holds no decision logic |
+| `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output with word tracking · hands-free speech input with an echo guard, live "Hearing: ..." text and spoken explanations when the microphone or the speech service fails · keyboard shortcuts. It holds no decision logic |
 
 ---
 
@@ -257,7 +257,7 @@ python run.py                  # checks your setup, starts the app and opens it 
 `run.py` does everything the host does, on this computer: it checks the Python version and the installed packages, tells you if the language-model key is missing, starts the same server, waits until the text reader has loaded and opens the page. Chrome (or Edge) does the camera, the microphone, speech to text and text to speech, exactly as for a visitor on the host. Options: `--no-browser` (print the address only), `--port 8000` (default 7860; the next free port is used if it is taken) and `--host 0.0.0.0` (also reachable from other devices on your network). Stop it with Ctrl+C. To start the server without `run.py`: `cd helping_eyes && uvicorn server:app --port 7860`.
 
 1. Allow the camera. Hold the item in front of it and follow the spoken guidance; it is captured automatically once it is steady and in view.
-2. After *"Got it"*, ask aloud (press **Listen** once for hands-free listening) or type the question and press Enter.
+2. After *"Got it"*, ask aloud (press **Listen** once for hands-free listening; the words appear as "Hearing: ..." while you speak) or type the question and press Enter.
 3. To capture a new item, move the current one out of view briefly, press **New item**, or say *"next"*.
 4. For a book, press **Book mode** (or say *"book mode"*), hold the book open and turn the pages.
 
@@ -310,7 +310,7 @@ for t in tests/test_*.py; do python "$t" || break; done
 | `A` | Read everything | Read the full captured text |
 | `P` | Repeat | Repeat the last answer |
 | `S` | Stop | Stop speaking |
-| `M` | Listen | Turn hands-free listening on or off |
+| `M` | Listen / Stop listening | Turn hands-free listening on or off (the button shows which) |
 
 Upload photo is a fallback for browsers without camera access; tick the box beside it for a two-page spread.
 
@@ -404,7 +404,7 @@ If the camera or the book moves, the new view is compared with the page being re
 | View moved mid-read (camera shifted 320 px; top lines left, new lines entered) | Reading continued from the exact word reached, with no new-page announcement; the newly visible lines were then read |
 | Different page after reading | Detected as a new page and read from the beginning |
 | Processing time | Page-turn detector 0.2 ms per frame; spine and layout analysis 8 ms; full page including recognition and word boxes about 0.4–0.9 s |
-| Automated tests | 94 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (11), server endpoints and WebSocket with real OCR (9), `run.py` (8: helpers, a real start, port fallback, Ctrl+C stop) |
+| Automated tests | 101 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (11), server endpoints and WebSocket with real OCR (9), `run.py` (8: helpers, a real start, port fallback, Ctrl+C stop), the page's listening in headless Chrome with a fake speech engine (7: live words, silence, service down, no or blocked microphone, repeated errors, switching off; skipped without Chrome) |
 | End to end in Chrome, fake camera filming a medicine label | Guidance, automatic capture (0.6 s), "read everything" and the expiry answer worked; in book mode with a looping two-page video, page turns were detected, announced and read (each page request 0.24–0.41 s). The language model itself was tested against a fake provider, not the real Gemini service |
 
 The principal benefits of book mode are hands-free page turning, identification of the printed page number and title on any page, correct handling of two-page spreads and headers, paragraph structure, and the reading position highlight.
@@ -493,6 +493,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | Book mode does not read the page | Hold the book still for about one second; the `motion` value in the status bar must fall below the `still <` threshold. Keep hands off the page. |
 | Book mode restarts a page after the book moved | The new view did not share enough words with the previous one (for example, it moved so far that little of the old text remained, or the new view was blurred). Move the book gently and hold it steady. |
 | A new item is not captured | Move the previous item out of view briefly, press **New item**, or say "next". |
-| A spoken question is not recognised | Use Chrome or Edge, press **Listen**, and wait until the application stops speaking before asking. Allow microphone access, or type the question. |
+| Nothing happens when I speak | Press **Listen** and allow the microphone when the browser asks. Watch the status line: it should show "Hearing: ..." as you talk. If it shows a message instead, it explains the cause and listening is switched off: "could not reach its speech service" means the browser's speech recognition is offline or blocked (it needs internet and does not work in some browsers, for example Brave); "No microphone was found" or "access was denied" is fixed in the browser's site settings (the icon in the address bar). Type your question meanwhile. |
+| A spoken question is not recognised | Use Chrome or Edge, speak after the application has stopped talking (the microphone is off while it speaks), and speak clearly at normal speed. |
 | Text is read in the wrong language | The default RapidOCR models are built for English and Chinese text; other languages need a different recognition model (see the RapidOCR documentation). |
 | No speech output | Check the browser's audio and the system voices; the page needs one interaction (a click or key press) before some browsers allow speech. |

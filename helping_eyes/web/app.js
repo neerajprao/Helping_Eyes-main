@@ -464,20 +464,53 @@ $("offer-no").addEventListener("click", () => { $("offer").hidden = true; ask("n
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognizer = null;
 let listening = false;        // the user turned listening on
+let micFailures = 0;          // speech errors in a row that are not just "nobody spoke"
 const ECHO_GUARD = 700;       // ms after the app stops talking before the microphone listens
+
+// What each speech error means, in words the user can act on
+const MIC_HELP = {
+  "network": "The browser could not reach its speech service. Listening needs an internet connection and does not work in some browsers, for example Brave. Type your question instead.",
+  "audio-capture": "No microphone was found. Plug one in or choose it in the browser settings, or type your question instead.",
+  "not-allowed": "Microphone access was denied. Allow it with the icon in the address bar, then press Listen again, or type your question instead.",
+  "language-not-supported": "This browser cannot recognise English speech. Type your question instead.",
+};
+MIC_HELP["service-not-allowed"] = MIC_HELP["not-allowed"];
 
 function setListening(on) {
   listening = on;
+  micFailures = 0;
   $("mic").setAttribute("aria-pressed", String(on));
+  $("mic").firstChild.textContent = on ? "Stop listening " : "Listen ";
   setStatus(on ? "Listening. Ask a question, or say a command." : "Listening is off.");
   if (!on && recognizer) recognizer.abort();
+}
+
+// Listening cannot work: switch it off and say why (spoken too, for someone who cannot read the screen)
+function micProblem(message) {
+  setListening(false);
+  setStatus(message);
+  say(message);
+}
+
+// Ask for the microphone now, from the button press, so the browser's permission question appears at once
+async function enableListening() {
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    setStatus("Asking the browser for the microphone…");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());       // only checking: the speech engine opens it itself
+    } catch (err) {
+      return micProblem(MIC_HELP[err.name === "NotFoundError" ? "audio-capture" : "not-allowed"]);
+    }
+  }
+  setListening(true);
 }
 
 if (!Recognition) {
   $("mic").disabled = true;
   $("mic").title = "Speech recognition is not supported in this browser (use Chrome or Edge). Type instead.";
 } else {
-  $("mic").addEventListener("click", () => setListening(!listening));
+  $("mic").addEventListener("click", () => (listening ? setListening(false) : enableListening()));
 }
 
 // Listen only while the app is quiet, so it does not hear its own voice
@@ -488,19 +521,21 @@ function listenTick() {
   const r = new Recognition();
   recognizer = r;
   r.lang = "en-US";
-  r.interimResults = false;
+  r.interimResults = true;                                // show words as they are heard: proof the microphone works
   r.maxAlternatives = 1;
   r.onresult = (e) => {
-    if (lastSpeechActivity > startedAt) return;       // the app started talking: that was its own voice
-    const text = e.results[0][0].transcript;
+    if (lastSpeechActivity > startedAt) return;           // the app started talking: that was its own voice
+    const result = e.results[e.results.length - 1];
+    const text = result[0].transcript;
+    if (!result.isFinal) return setStatus("Hearing: " + text + "…");
+    micFailures = 0;
     setStatus("Heard: " + text);
     ask(text);
   };
   r.onerror = (e) => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      setListening(false);
-      setStatus("Microphone access was denied. Type instead, or allow the microphone and press Listen.");
-    }
+    if (e.error === "aborted" || e.error === "no-speech") return;      // we stopped it, or nobody spoke: just listen again
+    if (MIC_HELP[e.error]) return micProblem(MIC_HELP[e.error]);
+    if (++micFailures >= 3) micProblem("Listening keeps failing (" + e.error + "). Type your question instead.");
   };
   r.onend = () => { if (recognizer === r) recognizer = null; };
   try { r.start(); } catch (err) { recognizer = null; }

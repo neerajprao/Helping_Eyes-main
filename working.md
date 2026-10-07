@@ -57,6 +57,7 @@ There is one test file for each part of `vision.py`, plus one each for the other
 | `test_llm.py` | The AI client against a pretend AI server: sentences arrive one by one, errors are spoken plainly, the web-search offer works, and expiry questions never call the AI. |
 | `test_server.py` | The whole server for real: reading a picture of a label, answering, the live stream, and book pages. |
 | `test_run.py` | The start button: that it finds the packages and the key, picks a free port, really starts the app, serves the page, and stops cleanly. |
+| `test_web_mic.py` | The microphone side of the web page, opened in a hidden Chrome with a pretend speech engine: words show while you speak, the finished sentence is sent, silence just listens again, and a missing or blocked microphone, or an unreachable speech service, is explained out loud and on screen. Skipped if Chrome is not installed. |
 
 To run them all: `cd helping_eyes` and then `for t in tests/test_*.py; do python "$t" || break; done`.
 
