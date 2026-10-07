@@ -1,5 +1,5 @@
 """
-Tests for the language-model client in doc_assistant.py against a fake OpenAI-compatible
+Tests for the language-model client in assistant.py against a fake OpenAI-compatible
 server (no real model, key or internet needed). The client is meant to work with any
 provider that speaks this API, so the fake stands in for all of them:
 
@@ -14,8 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # the application modules
 
-import doc_assistant as da
-from doc_assistant import DocAssistant
+import assistant as da
+from assistant import DocAssistant
 
 TEXT = "PARACETAMOL 500 mg TABLETS\nTake two tablets every six hours\nEXP: 04/2020"
 

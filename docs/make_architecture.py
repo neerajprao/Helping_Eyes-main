@@ -49,7 +49,7 @@ box(800,105,290,50,["INPUT 2: your voice or typing"],"#ffedd5",V)
 box(800,195,290,60,["Browser: speech to text"],"#fff",V)
 box(800,285,290,70,["commands.py","command or question?"],"#fff",V)
 box(1180,295,260,60,["Do it","stop, repeat, next, book mode"],"#fff",V)
-box(800,420,290,90,["doc_assistant.py + AI chat model","answers only from the saved text"],"#fff",V)
+box(800,420,290,90,["assistant.py + AI chat model","answers only from the saved text"],"#fff",V)
 box(1180,420,260,90,["DuckDuckGo search","then the AI answers from","the results"],"#fff",V)
 box(800,575,640,55,["Answer, sentence by sentence"],"#fff",V)
 # output

@@ -14,7 +14,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile everything
         working-directory: helping_eyes
-        run: python -m py_compile server.py commands.py vision.py doc_assistant.py
+        run: python -m py_compile server.py commands.py vision.py assistant.py
       - name: Run every test (the OCR, book mode and server tests use RapidOCR; none needs a key or a model)
         working-directory: helping_eyes
         run: for t in tests/test_*.py; do python "$t" || exit 1; done

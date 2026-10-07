@@ -96,7 +96,7 @@ flowchart TB
             OCRP["Part A: reading text (OCR)<br/>RapidOCR"]
         end
 
-        DA["doc_assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
+        DA["assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
     end
 
     LLM[Language model API<br/>Gemini Flash-Lite by default]
@@ -142,8 +142,8 @@ flowchart TB
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
 | Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own |
-| Understanding | Language model API (Gemini Flash-Lite by default; `doc_assistant.py`) | Reads requested parts or answers questions using only the captured text |
-| Expiry checks | `doc_assistant.py` | Expiry dates are compared with the current date in code, not by the model |
+| Understanding | Language model API (Gemini Flash-Lite by default; `assistant.py`) | Reads requested parts or answers questions using only the captured text |
+| Expiry checks | `assistant.py` | Expiry dates are compared with the current date in code, not by the model |
 | Web lookup | DuckDuckGo (`ddgs`) and the language model | Used only with the user's consent; answers are prefixed with "According to the web" |
 | Image quality | OpenCV layer (`vision.py`, part B) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
 | Book reading | OpenCV pipeline (`vision.py`, parts C and D) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
@@ -159,7 +159,7 @@ Helping_Eyes-main/
 │   ├── server.py           # FastAPI server: live stream, capture, book pages, requests, health
 │   ├── vision.py           # All the computer vision in four parts: A reading text (OCR), B image quality, C book mode, D live guidance
 │   ├── commands.py         # What a spoken or typed request means
-│   ├── doc_assistant.py    # Question answering through a language model API, expiry checks, web lookup
+│   ├── assistant.py    # Question answering through a language model API, expiry checks, web lookup
 │   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
 │   ├── cloud/              # Dockerfile, start script, Space README, deploy script
 │   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm and server
@@ -177,7 +177,7 @@ Helping_Eyes-main/
 | `server.py` | `/ws/live` (preview frames in, guidance and page turns out) · `/api/capture` (photo → text) · `/api/book/page` (book view → what to read, from where, and the page layout) · `/api/ask` (one request → commands, answers, web lookup, streamed as NDJSON) · `/api/health` · one session per browser (30 min) and a per-client rate limit |
 | `vision.py` | **Part A, reading text (OCR):** `find_text_region()` for live detection · `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read · **Part B, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part C, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part D, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
 | `commands.py` | `classify()` turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question |
-| `doc_assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
+| `assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
 | `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output with word tracking · hands-free speech input with an echo guard · keyboard shortcuts. It holds no decision logic |
 
 ---

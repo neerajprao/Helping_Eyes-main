@@ -16,7 +16,7 @@ assemble() {
     rm -rf "$out" && mkdir -p "$out"
     mkdir -p "$out/helping_eyes/cloud"
     cp "$TOP/requirements.txt" "$out/"
-    cp "$ROOT"/{server.py,commands.py,vision.py,doc_assistant.py} "$out/helping_eyes/"
+    cp "$ROOT"/{server.py,commands.py,vision.py,assistant.py} "$out/helping_eyes/"
     cp -R "$ROOT/web" "$out/helping_eyes/web"
     cp "$ROOT/cloud/start.sh" "$out/helping_eyes/cloud/"
     cp "$ROOT"/cloud/{Dockerfile,README.md} "$out/"          # Hugging Face wants these at the top

@@ -14,7 +14,7 @@ import numpy as np
 
 import vision
 from vision import PageInfo, PageLayout, QualityReport, TextLine
-from doc_assistant import DocAssistant
+from assistant import DocAssistant
 
 W, H = 1280, 720
 FRAME = np.zeros((H, W, 3), np.uint8)

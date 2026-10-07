@@ -8,7 +8,7 @@ so the browser needs no command logic of its own.
 import re
 from dataclasses import dataclass
 
-from doc_assistant import wants_read_all
+from assistant import wants_read_all
 
 _STOP = re.compile(r"^(stop|stop (it|talking|speaking|reading)|be quiet|quiet|shut up|cancel)[.!]*$")
 _REPEAT = re.compile(r"^(repeat|repeat that|say (that|it) again|again|pardon|what)[.?!]*$")
