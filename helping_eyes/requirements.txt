@@ -1,0 +1,19 @@
+# Helping Eyes: one set of dependencies for a laptop and for the cloud image.
+#   pip install -r requirements.txt
+# OCR: Apple Vision on macOS, RapidOCR everywhere else (picked by sys_platform below).
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+opencv-python-headless==4.13.0.92
+numpy==2.4.2
+requests==2.34.2
+ddgs==9.16.0
+python-dotenv==1.2.1
+
+pyobjc-framework-Vision==12.2.2; sys_platform == "darwin"
+pyobjc-framework-Quartz==12.2.2; sys_platform == "darwin"
+rapidocr==3.9.2; sys_platform != "darwin"
+onnxruntime==1.30.0; sys_platform != "darwin"
+
+# Tests (python test_*.py runs without these, except test_server.py)
+httpx2==2.13.1

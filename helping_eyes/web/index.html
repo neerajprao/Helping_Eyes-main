@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Helping Eyes</title>
+  <meta name="description" content="Camera-based reading assistant: show text to the camera, then ask about it. Reads books page by page.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Helping Eyes</h1>
+    <p class="tagline">Show a label, letter or book to the camera and follow the spoken guidance. Then ask about it.</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="capture-heading" class="card">
+      <h2 id="capture-heading">1. Show it to the camera</h2>
+      <div class="camera">
+        <video id="video" autoplay playsinline muted aria-label="Camera preview"></video>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+        <p id="camera-message" class="camera-message" hidden></p>
+      </div>
+      <div class="row">
+        <button id="capture" class="primary">Capture now <kbd>C</kbd></button>
+        <button id="newitem" class="secondary">New item <kbd>R</kbd></button>
+        <button id="bookmode" class="secondary" aria-pressed="false">Book mode <kbd>B</kbd></button>
+        <label class="button secondary" for="upload">Upload photo</label>
+        <input id="upload" type="file" accept="image/*" capture="environment" class="visually-hidden">
+        <label class="toggle"><input id="book" type="checkbox"> Uploaded photo is a two-page spread</label>
+      </div>
+      <details id="captured" hidden>
+        <summary>Captured text <span id="page-label"></span></summary>
+        <pre id="captured-text"></pre>
+      </details>
+    </section>
+
+    <section aria-labelledby="ask-heading" class="card">
+      <h2 id="ask-heading">2. Ask</h2>
+      <form id="ask-form" class="row">
+        <label for="question" class="visually-hidden">Your question</label>
+        <input id="question" type="text" placeholder="e.g. When does it expire?" autocomplete="off">
+        <button type="submit" class="primary">Ask</button>
+        <button type="button" id="mic" class="secondary" aria-pressed="false">Listen <kbd>M</kbd></button>
+      </form>
+      <div class="row">
+        <button id="read-all" class="secondary">Read everything <kbd>A</kbd></button>
+        <button id="repeat" class="secondary">Repeat <kbd>P</kbd></button>
+        <button id="stop" class="danger">Stop <kbd>S</kbd></button>
+      </div>
+      <p class="hint">Say or type: "read everything", "read only the dosage", "when does it expire?", "next",
+        "book mode", "look it up", "stop". Listening pauses while the app is talking.</p>
+      <div id="offer" class="offer" hidden>
+        <p>The text doesn't say. Should I look it up online?</p>
+        <button id="offer-yes" class="primary">Yes, look it up</button>
+        <button id="offer-no" class="secondary">No</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="answer-heading" class="card">
+      <h2 id="answer-heading">Answer</h2>
+      <p id="status" class="status" role="status" aria-live="polite">Allow camera access, then show something to read.</p>
+      <div id="answer" class="answer" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Answers come only from the captured text; web answers are marked "According to the web".
+       Check medical information with a pharmacist or doctor.</p>
+  </footer>
+  <canvas id="canvas" hidden></canvas>
+  <script src="/static/app.js"></script>
+</body>
+</html>

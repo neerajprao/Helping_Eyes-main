@@ -1,0 +1,2 @@
+# Same as helping_eyes/requirements.txt, so `pip install -r requirements.txt` works from the repo root.
+-r helping_eyes/requirements.txt

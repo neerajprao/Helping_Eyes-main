@@ -1,0 +1,27 @@
+name: Check
+
+on: [push, pull_request]
+
+jobs:
+  helping-eyes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        working-directory: helping_eyes
+        run: pip install -r requirements.txt
+      - name: Compile everything
+        working-directory: helping_eyes
+        run: python -m py_compile server.py commands.py live.py doc_assistant.py book_mode.py text_vision.py page_enhance.py
+      - name: Image layer, commands and live-guidance tests (no OCR or model needed)
+        working-directory: helping_eyes
+        run: |
+          python tests/test_page_enhance.py
+          python tests/test_commands.py
+          python tests/test_live.py
+      - name: Server tests (RapidOCR reads a rendered label; no language model needed)
+        working-directory: helping_eyes
+        run: python tests/test_server.py
