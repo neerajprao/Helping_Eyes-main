@@ -142,6 +142,34 @@ def test_book_page_endpoint_reads_a_page_and_resumes():
     assert "haven't captured" not in spoken(ask("read everything", sid))
 
 
+def test_tts_endpoint_returns_audio_and_reports_failure():
+    original = server.commands.synthesize
+    server.commands.synthesize = lambda text: b"\xff\xf3audio"
+    try:
+        res = client.post("/api/tts", json={"text": "Hello there."})
+        assert res.status_code == 200 and res.headers["content-type"] == "audio/mpeg" and res.content == b"\xff\xf3audio"
+
+        def failing(text):
+            raise server.commands.TtsError("no network")
+        server.commands.synthesize = failing
+        assert client.post("/api/tts", json={"text": "Hello there."}).status_code == 502
+    finally:
+        server.commands.synthesize = original
+    assert client.get("/api/health").json()["tts"] is True
+
+
+def test_tts_endpoint_is_rate_limited():
+    original = server.commands.synthesize
+    server.commands.synthesize = lambda text: b"x"
+    server._tts_hits.clear()
+    try:
+        codes = [client.post("/api/tts", json={"text": "Hi."}).status_code for _ in range(server.TTS_RATE_LIMIT + 1)]
+    finally:
+        server.commands.synthesize = original
+        server._tts_hits.clear()
+    assert codes[:-1] == [200] * server.TTS_RATE_LIMIT and codes[-1] == 429
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

@@ -147,7 +147,7 @@ flowchart TB
 | Web lookup | DuckDuckGo (`ddgs`) and the language model | Used only with the user's consent; answers are prefixed with "According to the web" |
 | Image quality | OpenCV layer (`vision.py`, part B) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
 | Book reading | OpenCV pipeline (`vision.py`, parts C and D) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
-| Text-to-speech | Browser `speechSynthesis` | Queued, interruptible speech; the word being spoken is reported back for the on-screen highlight. Numbers above 9999 (serial, batch and phone numbers) are spoken digit by digit |
+| Text-to-speech | Edge neural voice (`edge-tts`, in `commands.py`, `POST /api/tts`); browser `speechSynthesis` as the fallback | Each sentence is turned into MP3 audio by a free Microsoft Edge neural voice (default `en-US-JennyNeural`, female; settings `TTS_VOICE`, `TTS_RATE`, `TTS_ENABLED`). It needs no account, key or card. A sentence takes about 1 s, and the next few are fetched while one plays. If the voice service fails, the browser's own voice speaks that sentence and the server voice is tried again after a minute. Numbers above 9999 (serial, batch and phone numbers) are spoken digit by digit. Queued and interruptible; the spoken word is estimated from the playing time for the on-screen highlight |
 
 ---
 
@@ -202,6 +202,7 @@ Helping_Eyes-main/
 | RapidOCR (ONNX Runtime, CPU) | Text detection and recognition on any platform |
 | A language model API | Question answering. Any OpenAI-compatible chat API; Gemini Flash-Lite (free key) by default |
 | FastAPI and uvicorn | The server and its WebSocket |
+| `edge-tts` | Free Microsoft Edge neural voice for speech out; no account or API key required, but it needs an internet connection |
 | `ddgs` (DuckDuckGo) | Web search, only with the user's consent; no account or API key required |
 | OpenCV and NumPy | Image analysis, book-mode page analysis |
 | Browser speech services | Speech recognition and text-to-speech |
@@ -382,7 +383,7 @@ While a page is read aloud, the display follows the speech word by word: the **l
 
 <img src="docs/book_mode_highlight.jpg" width="720" alt="Book mode reading highlight: the line being spoken highlighted in yellow and the current word outlined in orange">
 
-- **Spoken position:** the browser's speech engine reports the word being spoken (the `boundary` event of `speechSynthesis`), and `app.js` converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `vision.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
+- **Spoken position:** `app.js` estimates the word being spoken from how far through the audio it is (the server gives no word times; the browser fallback voice reports the word through the `boundary` event of `speechSynthesis`) and converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `vision.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
 - **On-page location:** during recognition, the OCR engine provides a bounding box for every word, and `read_page()` records which characters of the page text belong to which printed line and word (`PageLayout.lines`). The server sends this layout to the page with each new book page.
 - Combining the two yields the exact on-screen location of the word being spoken, drawn on the overlay in the browser.
 

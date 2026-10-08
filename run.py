@@ -38,7 +38,7 @@ ENV_FILE = os.path.join(APP_DIR, ".env")
 DEFAULT_PORT = 7860
 REQUIRED = {"fastapi": "fastapi", "uvicorn": "uvicorn", "multipart": "python-multipart", "cv2": "opencv-python-headless",
             "numpy": "numpy", "rapidocr": "rapidocr", "onnxruntime": "onnxruntime", "requests": "requests",
-            "ddgs": "ddgs", "dotenv": "python-dotenv"}
+            "ddgs": "ddgs", "dotenv": "python-dotenv", "edge_tts": "edge-tts"}
 
 
 # ---------------------------------------------------------------- checks

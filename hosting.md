@@ -29,7 +29,7 @@ how to build that box.
 | `requirements.txt` (top folder) | The one shopping list of Python packages. The `Dockerfile` installs everything on it. |
 | `helping_eyes/server.py` | The front desk: receives pictures and requests from visitors and sends answers back. |
 | `helping_eyes/vision.py` | The eyes: reads text from pictures, fixes bad photos, understands book pages, and gives the "move closer" hints. |
-| `helping_eyes/commands.py` | The listener: decides if what you said is a command or a question. |
+| `helping_eyes/commands.py` | The listener and the voice: decides if what you said is a command or a question, and turns each sentence into spoken audio with a free Microsoft Edge voice (needs no key; if it fails, the page uses the browser's own voice). |
 | `helping_eyes/assistant.py` | The answerer: asks the AI model (Gemini) and searches the web when you agree. |
 | `helping_eyes/web/` | The web page itself: `index.html` (layout), `app.js` (camera, voice and speaking), `style.css` (looks) and `favicon.svg` (the small tab icon). |
 

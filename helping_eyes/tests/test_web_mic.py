@@ -33,11 +33,23 @@ class FakeRec {
   finish() { if (!this.ended) { this.ended = true; if (this.onend) this.onend(); } }
 }
 window.SpeechRecognition = window.webkitSpeechRecognition = FakeRec;
-const fakeSynth = { speak(u) { window.__spoken.push(u.text); setTimeout(() => { if (u.onend) u.onend(); }, 5); }, cancel() {} };
+const fakeSynth = { speak(u) { window.__spoken.push(u.text + ' [browser]'); setTimeout(() => { if (u.onend) u.onend(); }, 5); }, cancel() {} };
 Object.defineProperty(window, "speechSynthesis", { value: fakeSynth });
 window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+// The server voice (/api/tts) returns audio that an <audio> element plays. Fake both: record the text, "play" for 5 ms.
+// window.__ttsDown = true makes /api/tts fail, so the browser voice (fakeSynth) takes over.
 const realFetch = window.fetch;
-window.fetch = (url, opts) => { if (String(url).includes("/api/ask")) window.__asked.push(JSON.parse(opts.body).question); return realFetch(url, opts); };
+window.fetch = (url, opts) => {
+  if (String(url).includes("/api/ask")) window.__asked.push(JSON.parse(opts.body).question);
+  if (String(url).includes("/api/tts")) {
+    if (window.__ttsDown) return Promise.resolve(new Response("no", { status: 502 }));
+    window.__spoken.push(JSON.parse(opts.body).text);
+    return Promise.resolve(new Response(new Blob(["x"], { type: "audio/mpeg" })));
+  }
+  if (String(url).includes("/api/health")) return Promise.resolve(new Response(JSON.stringify({ tts: true })));
+  return realFetch(url, opts);
+};
+window.Audio = class { constructor() { this.duration = 0; } play() { setTimeout(() => { if (this.onended) this.onended(); }, 5); return Promise.resolve(); } pause() {} };
 window.__say = (words, isFinal) => {                       // the speech engine "hears" something
   const rec = window.__recs[window.__recs.length - 1];
   const result = Object.assign([{ transcript: words }], { isFinal });
@@ -226,6 +238,12 @@ def scenario_button_turns_listening_off(page):
     assert page.js("window.__recs.length") == n                        # and it stays off
 
 
+def scenario_browser_voice_takes_over_when_the_server_voice_fails(page):
+    page.js("window.__ttsDown = true")
+    page.js("document.getElementById('question').value = 'next'; document.getElementById('ask-form').requestSubmit()")
+    page.wait("window.__spoken.some((t) => t.endsWith('[browser]'))")  # still spoken, by the browser's voice
+
+
 def run_scenario(scenario):
     if CHROME is None:
         print(f"SKIP  {scenario.__name__}: Chrome is not installed")
@@ -259,6 +277,10 @@ def test_repeated_unknown_errors_stop_listening_with_a_message():
 
 def test_the_button_turns_listening_off_and_it_stays_off():
     run_scenario(scenario_button_turns_listening_off)
+
+
+def test_the_browser_voice_takes_over_when_the_server_voice_fails():
+    run_scenario(scenario_browser_voice_takes_over_when_the_server_voice_fails)
 
 
 if __name__ == "__main__":

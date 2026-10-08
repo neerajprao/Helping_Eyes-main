@@ -30,6 +30,15 @@ let speakingNow = null;
 let speechPos = null;         // book mode: character of the page being spoken right now
 let lastSpeechActivity = 0;   // performance.now() when speech last started or ended (echo guard)
 
+let player = null;            // the <audio> element that is playing now
+let serverVoice = true;       // false after a failure, until serverVoiceRetry
+let serverVoiceRetry = 0;
+const PREFETCH = 3;           // sentences fetched ahead, so the voice does not pause between them
+
+// Does the server have a voice? Known before the first sentence is fetched
+const voiceKnown = fetch("/api/health").then((r) => r.json()).then((h) => { if (h.tts === false) { serverVoice = false; serverVoiceRetry = Infinity; } }).catch(() => {});
+const serverVoiceUsable = () => serverVoice || performance.now() > serverVoiceRetry;
+
 const isSpeaking = () => !!speakingNow || speechQueue.length > 0;
 
 // A number above 9999 is nearly always a serial, batch or phone number: say its digits one by one,
@@ -44,11 +53,12 @@ function spokenForm(text) {
 
 // start: for a piece of a book page, its offset in the page text (enables the reading position)
 function say(text, { el = null, start = null } = {}) {
-  if (!synth || !text || !text.trim()) return;
+  if (!text || !text.trim()) return;
   if (start !== null) start += text.length - text.trimStart().length;
-  speechQueue.push({ text: text.trim(), el, start });
+  speechQueue.push({ text: text.trim(), el, start, audio: null });
   lastSpeechActivity = performance.now();
   if (recognizer) recognizer.abort();      // the microphone must not hear the app
+  prefetch();
   if (!speakingNow) speakNext();
 }
 
@@ -61,32 +71,99 @@ function speakNext() {
     return;
   }
   speakingNow = item;
+  prefetch();
+  const finished = () => {
+    if (speakingNow !== item) return;      // a stale event from a cancelled sentence
+    if (item.el) item.el.textContent = item.text;
+    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
+    if (item.url) URL.revokeObjectURL(item.url);
+    player = null;
+    speakNext();
+  };
+  fetchAudio(item).then((url) => {
+    if (speakingNow !== item) { if (url) URL.revokeObjectURL(url); return; }      // stopped while waiting
+    if (url) playAudio(item, url, finished);
+    else speakWithBrowser(item, finished);
+  });
+}
+
+// The server's voice: fetch the audio of one sentence; resolves to an object URL, or null when it cannot
+function fetchAudio(item) {
+  if (item.audio) return item.audio;
+  item.audio = (async () => {
+    await voiceKnown;
+    if (!serverVoiceUsable()) return null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const slow = new AbortController();
+      const giveUp = setTimeout(() => slow.abort(), 15000);
+      try {
+        const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ text: item.text }), signal: slow.signal });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        serverVoice = true;
+        return URL.createObjectURL(await res.blob());
+      } catch (err) {
+        if (attempt === 2) {
+          serverVoice = false;
+          serverVoiceRetry = performance.now() + 60000;     // browser voice for a minute, then try again
+        }
+      } finally {
+        clearTimeout(giveUp);
+      }
+    }
+    return null;
+  })();
+  return item.audio;
+}
+
+function prefetch() {
+  if (serverVoiceUsable()) speechQueue.slice(0, PREFETCH).forEach(fetchAudio);
+}
+
+function playAudio(item, url, finished) {
+  item.url = url;
+  const audio = new Audio(url);
+  player = audio;
+  let lastIndex = -1;
+  audio.onplay = () => { if (item.start !== null) speechPos = item.start; };
+  audio.ontimeupdate = () => {
+    if (!audio.duration) return;
+    // The server gives no word times: estimate the word from how far through the audio we are
+    let index = Math.min(item.text.length - 1, Math.floor((audio.currentTime / audio.duration) * item.text.length));
+    while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
+    if (index !== lastIndex) { lastIndex = index; markWord(item, index); }
+  };
+  // Never freeze the app if the audio neither plays nor ends
+  const watchdog = setTimeout(() => done(), 8000 + item.text.length * 150);
+  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = null; audio.pause(); finished(); };
+  audio.onended = audio.onerror = done;
+  audio.play().catch(() => { clearTimeout(watchdog); item.url = null; URL.revokeObjectURL(url); player = null; speakWithBrowser(item, finished); });
+}
+
+// Mark the word at charIndex of the shown sentence, and move the book reading position
+function markWord(item, charIndex) {
+  if (item.start !== null) speechPos = item.start + charIndex;
+  if (!item.el) return;
+  const t = item.text;
+  const end = t.slice(charIndex).search(/\s|$/) + charIndex;
+  item.el.innerHTML = escapeHtml(t.slice(0, charIndex)) + "<mark>" + escapeHtml(t.slice(charIndex, end)) +
+    "</mark>" + escapeHtml(t.slice(end));
+}
+
+// The browser's own voice: used when the server's voice is not available
+function speakWithBrowser(item, finished) {
+  if (!synth) return finished();
   // The spoken text may differ from the shown text (long numbers are spelled out), so the word position
-  // is mapped back by counting words: both texts have the same words, except spelled-out digits.
+  // is mapped back by counting words.
   const u = new SpeechSynthesisUtterance(spokenForm(item.text));
   u.lang = "en-US";
   u.rate = 1.0;
   u.onstart = () => { if (item.start !== null) speechPos = item.start; };
-  u.onboundary = (e) => {
-    if (e.name !== "word") return;
-    const shown = shownIndex(item.text, u.text, e.charIndex);
-    if (item.start !== null) speechPos = item.start + shown;
-    if (!item.el) return;
-    const t = item.text;
-    const end = t.slice(shown).search(/\s|$/) + shown;
-    item.el.innerHTML = escapeHtml(t.slice(0, shown)) + "<mark>" + escapeHtml(t.slice(shown, end)) +
-      "</mark>" + escapeHtml(t.slice(end));
-  };
+  u.onboundary = (e) => { if (e.name === "word") markWord(item, shownIndex(item.text, u.text, e.charIndex)); };
   // Some browsers never report the end of an utterance: don't let that freeze the app
-  const watchdog = setTimeout(() => finished(), 4000 + u.text.length * 120);
-  const finished = () => {
-    clearTimeout(watchdog);
-    if (speakingNow !== item) return;      // a stale event from a cancelled utterance
-    if (item.el) item.el.textContent = item.text;
-    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
-    speakNext();
-  };
-  u.onend = u.onerror = finished;
+  const watchdog = setTimeout(() => done(), 4000 + u.text.length * 120);
+  const done = () => { clearTimeout(watchdog); finished(); };
+  u.onend = u.onerror = done;
   synth.speak(u);
 }
 
@@ -112,6 +189,7 @@ function silence() {
   speakingNow = null;
   speechPos = null;
   lastSpeechActivity = performance.now();
+  if (player) { player.onended = player.onerror = null; player.pause(); player = null; }
   if (synth) synth.cancel();
   answerEl.querySelectorAll("p").forEach((p) => { if (p.querySelector("mark")) p.textContent = p.textContent; });
 }

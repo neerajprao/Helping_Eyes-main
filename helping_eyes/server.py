@@ -10,6 +10,7 @@ recognition and speech output; the server does everything else:
     POST /api/book/page   full-size photo of a book view -> what to read, from where
     POST /api/ask         a spoken or typed request -> commands, answers, web lookup,
                           streamed as NDJSON (the routing lives in commands.py)
+    POST /api/tts         one sentence -> spoken audio (MP3, commands.py; the page uses the browser voice if it fails)
     GET  /api/health      health check
     GET  /                the page (web/index.html)
 
@@ -41,10 +42,11 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import commands
 from commands import classify
 from assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
 from vision import BookReader, BookWatcher, LiveGuide, find_text_region, read_page, read_text_enhanced
@@ -223,7 +225,35 @@ def health() -> dict:
     # No request to the language model here: free API plans count every call
     return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY),
             "ocr": _warmup["state"], "memory_mb": _memory_mb(), "memory_limit_mb": _memory_limit_mb(),
-            "cpus": os.cpu_count()}
+            "cpus": os.cpu_count(), "tts": commands.TTS_ENABLED}
+
+
+class Speak(BaseModel):
+    text: str = ""
+
+
+_tts_hits: Dict[str, deque] = defaultdict(deque)
+TTS_RATE_LIMIT = 60            # speech requests per minute per client (one per sentence)
+
+
+@app.post("/api/tts")
+def speak(q: Speak, request: Request) -> Response:
+    """Turn one sentence into MP3 audio."""
+    if not commands.TTS_ENABLED:
+        raise HTTPException(503, "The server voice is switched off.")
+    client, now = _client(request), time.time()
+    hits = _tts_hits[client]
+    while hits and now - hits[0] > 60:
+        hits.popleft()
+    if len(hits) >= TTS_RATE_LIMIT:
+        raise HTTPException(429, "Too many speech requests. Please wait a moment.")
+    hits.append(now)
+    try:
+        audio = commands.synthesize(q.text)
+    except commands.TtsError as e:
+        logger.error(f"TTS failed: {e}")
+        raise HTTPException(502, "The voice service failed.")
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/capture")

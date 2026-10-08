@@ -9,6 +9,7 @@ rapidocr==3.9.2
 onnxruntime==1.30.0
 requests==2.34.2
 ddgs==9.16.0
+edge-tts==7.2.8
 python-dotenv==1.2.1
 
 # Tests (python helping_eyes/tests/test_*.py runs without these, except test_server.py)
