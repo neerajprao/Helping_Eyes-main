@@ -196,6 +196,7 @@ function silence() {
 
 // Stop talking and stop the answer that is being generated
 function stopSpeaking() {
+  pendingTurn = false;
   silence();
   if (controller) { controller.abort(); controller = null; }
   thinking = false;
@@ -398,6 +399,7 @@ let lastChunkStart = 0;       // start of the page's last spoken piece
 let reading = false;          // the page is being read aloud
 let turnPrompted = true;      // "Turn the page." already said for this page
 let bookBusy = false;
+let pendingTurn = false;      // a page turn was seen while reading: read the new page when this one is done
 
 function resetBook() {
   pageText = ""; pageLayout = null; pageLabel = ""; readPos = 0; lastChunkStart = 0;
@@ -421,6 +423,11 @@ function bookTick(reply, fresh) {
     reading = false;
     if (readPos >= lastChunkStart) readPos = pageText.length;       // read to the end
   }
+  const readingNow = reading && isSpeaking();
+  // While a page is being read, nothing the camera sees (the book moving, a hand, a page turn) interrupts it:
+  // it stops only when asked to, or when the page is done. A page turn seen meanwhile is read afterwards.
+  if (fresh && reply.event && readingNow) { if (reply.event === "changed") pendingTurn = true; return; }
+  if (!readingNow && pendingTurn && !bookBusy && !thinking) { pendingTurn = false; return handleBookEvent("changed"); }
   if (fresh && reply.event && !bookBusy) return handleBookEvent(reply.event);
   if (pageText && !turnPrompted && !bookBusy && !(isSpeaking() || thinking)) {
     say("Turn the page.");

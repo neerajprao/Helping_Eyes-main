@@ -1257,6 +1257,7 @@ REARM_AFTER = 1.5          # seconds with no text in view before a new capture i
 QUALITY_PATIENCE = 3.0     # seconds to coach about blur / glare before capturing anyway
 MOVED_SAME_PAGE = 0.12     # book mode: a moved view sharing this much text with the page being read is the same page
 QUALITY_COOLDOWN = 5.0     # seconds between spoken image-quality hints
+LOW_LIGHT_COOLDOWN = 30.0  # "Low light" is said at most once in this many seconds
 HINT_COOLDOWN = 2.0        # seconds before the same position hint is spoken again
 GUIDE_MARGIN_X = 30 / 1280  # the guide box, as fractions of the frame
 GUIDE_MARGIN_Y = 20 / 720
@@ -1292,6 +1293,7 @@ class LiveGuide:
         self.last_hint = ""
         self.last_hint_time = 0.0
         self.last_quality_hint_time = 0.0
+        self.last_low_light_time = -1e9
         self.quality = QualityReport()
 
     def rearm(self) -> None:
@@ -1336,7 +1338,15 @@ class LiveGuide:
 
     def _coach_quality(self, now: float) -> str:
         hint = self.quality.hint()
-        if hint and now - self.last_quality_hint_time > QUALITY_COOLDOWN:
+        if not hint:
+            return ""
+        if hint == "Low light":
+            if now - self.last_low_light_time <= LOW_LIGHT_COOLDOWN:
+                return ""
+            self.last_low_light_time = now
+            self.last_quality_hint_time = now
+            return hint
+        if now - self.last_quality_hint_time > QUALITY_COOLDOWN:
             self.last_quality_hint_time = now
             return hint
         return ""

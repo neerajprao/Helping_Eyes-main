@@ -141,7 +141,7 @@ flowchart TB
 |---|---|---|
 | Image acquisition | Browser camera (`getUserMedia`) | Rear camera at up to 1080p; small preview frames go to the server over a WebSocket, the full-size photo only when capturing |
 | Text detection | Apple Vision (`vision.py`, part A) | Locates every line of text in each preview frame |
-| User guidance | `vision.py`, part D (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
+| User guidance | `vision.py`, part D (`LiveGuide`) | Spoken positioning hints, blur / glare coaching ("Low light" is said at most once every 30 s), then a short hold-still countdown and automatic capture |
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
 | Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own |
@@ -502,7 +502,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | Stuck on SHOW TEXT HERE | Check that the page is connected (the server log shows the live stream). Move closer and make sure the text is well lit and inside the guide box. |
 | Book mode announces no page number | The number is small or at the very edge of the frame. Move the camera so the whole page, including its top and bottom margins, is in view. |
 | Book mode does not read the page | Hold the book still for about one second; the `motion` value in the status bar must fall below the `still <` threshold. Keep hands off the page. |
-| Book mode restarts a page after the book moved | A small nudge or vibration no longer restarts a page: the page layout is compared after sliding it a little, and a moved view that shares at least 12% of its words with the page being read carries on. A page restarts only when the layout and the words both differ clearly. If it still restarts, hold the book steady and keep the whole page in view. |
+| Book mode restarts a page after the book moved | It no longer does: while a page is being read, nothing the camera sees (the book moving, a hand, even a page turn) interrupts it. Reading stops only when you ask ("stop", the Stop button) or the page is finished; a page turn seen meanwhile is read afterwards. Between pages, a small nudge is ignored because the page layout is compared after sliding it a little. |
 | A new item is not captured | Move the previous item out of view briefly, press **New item**, or say "next". |
 | Nothing happens when I speak | Press **Listen** and allow the microphone when the browser asks. Watch the status line: it should show "Hearing: ..." as you talk. If it shows a message instead, it explains the cause and listening is switched off: "could not reach its speech service" means the browser's speech recognition is offline or blocked (it needs internet and does not work in some browsers, for example Brave); "No microphone was found" or "access was denied" is fixed in the browser's site settings (the icon in the address bar). Type your question meanwhile. |
 | A spoken question is not recognised | Use Chrome or Edge, speak after the application has stopped talking (the microphone is off while it speaks), and speak clearly at normal speed. |
