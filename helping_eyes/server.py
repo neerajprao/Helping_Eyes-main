@@ -340,7 +340,7 @@ async def book_page(request: Request, image: UploadFile = File(...), sid: str = 
 class Question(BaseModel):
     sid: str
     question: str = ""
-    provider: str = ""             # language model chosen in the page's menu: "gemini", "qwen3b" or "qwen7b" ("" keeps the last one)
+    provider: str = ""             # language model chosen in the page's menu: "gemini" or "qwen3b" ("" keeps the last one)
 
 
 @app.post("/api/ask")

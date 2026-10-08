@@ -10,10 +10,9 @@ Settings (environment or .env); nothing here is specific to one provider:
 
 The page's model menu picks between two providers per request:
     gemini        the settings above
-    qwen3b, qwen7b  models on this computer, served by Ollama (https://ollama.com)
+    qwen3b        Qwen 2.5 3B on this computer, served by Ollama (https://ollama.com)
     QWEN_BASE_URL  Ollama's OpenAI-compatible address (default: http://localhost:11434/v1)
     QWEN_3B_MODEL  the 3B model's name in `ollama list` (default: qwen2.5:3b-instruct)
-    QWEN_7B_MODEL  the 7B model's name in `ollama list` (default: qwen2.5:7b-instruct)
 """
 
 import json
@@ -34,8 +33,7 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
 
 QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1").rstrip("/")
-QWEN_MODELS = {"qwen3b": os.getenv("QWEN_3B_MODEL", "qwen2.5:3b-instruct"),
-               "qwen7b": os.getenv("QWEN_7B_MODEL", "qwen2.5:7b-instruct")}
+QWEN_MODELS = {"qwen3b": os.getenv("QWEN_3B_MODEL", "qwen2.5:3b-instruct")}
 PROVIDERS = ("gemini", *QWEN_MODELS)
 
 # The model replies with exactly this when the user wants everything read out;
