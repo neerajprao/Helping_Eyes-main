@@ -4,7 +4,7 @@
 // the answers) is made by the server (server.py, live.py, commands.py).
 
 const $ = (id) => document.getElementById(id);
-const video = $("video"), overlay = $("overlay"), grab = $("canvas");
+const video = $("video"), overlay = $("overlay"), grab = $("canvas"), still = $("still");
 const statusEl = $("status"), answerEl = $("answer");
 
 const sid = newId();          // identifies this browser to the server (its item, conversation, book)
@@ -204,6 +204,7 @@ function stopSpeaking() {
 
 // ================================================================ camera
 let cameraReady = false;
+let uploadView = false;       // an uploaded photo is shown in place of the camera
 
 async function startCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -233,11 +234,13 @@ function cameraUnavailable(message) {
 
 // A JPEG of the current camera frame, scaled so its longer side is at most maxSide
 function frameBlob(maxSide, quality) {
+  const src = uploadView ? still : video;
+  const w = uploadView ? still.naturalWidth : video.videoWidth, h = uploadView ? still.naturalHeight : video.videoHeight;
   return new Promise((resolve) => {
-    const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-    grab.width = Math.round(video.videoWidth * scale);
-    grab.height = Math.round(video.videoHeight * scale);
-    grab.getContext("2d").drawImage(video, 0, 0, grab.width, grab.height);
+    const scale = Math.min(1, maxSide / Math.max(w, h));
+    grab.width = Math.round(w * scale);
+    grab.height = Math.round(h * scale);
+    grab.getContext("2d").drawImage(src, 0, 0, grab.width, grab.height);
     grab.toBlob(resolve, "image/jpeg", quality);
   });
 }
@@ -267,12 +270,12 @@ async function liveLoop() {
   const stuck = awaiting && performance.now() - sentAt > 8000;   // a lost reply must not stall the loop
   // Normal mode looks for text only while the app is quiet; book mode keeps watching for page turns
   const wanted = mode === "book" || !(isSpeaking() || thinking);
-  if (cameraReady && ws && ws.readyState === WebSocket.OPEN && (!awaiting || stuck) && !paused && wanted && !document.hidden) {
+  if (cameraReady && !uploadView && ws && ws.readyState === WebSocket.OPEN && (!awaiting || stuck) && !paused && wanted && !document.hidden) {
     awaiting = true;
     sentAt = performance.now();
     const blob = await frameBlob(960, 0.7);
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(blob); else awaiting = false;
-  } else if (mode === "book" && bookState) {
+  } else if (mode === "book" && bookState && !uploadView) {
     bookTick(bookState, false);       // keep the reading bookkeeping going while no frame is in flight
   }
   setTimeout(liveLoop, 100);
@@ -345,7 +348,8 @@ async function autoCapture() {
 
 // The Capture now button: take a photo immediately (normal mode) or read the page in view (book mode)
 $("capture").addEventListener("click", async () => {
-  if (!video.videoWidth) return setStatus("The camera is not ready yet.");
+  if (uploadView && mode === "book") return handleBookEvent("changed");
+  if (!uploadView && !video.videoWidth) return setStatus("The camera is not ready yet.");
   if (mode === "book") return handleBookEvent("changed");
   paused = true;
   stopSpeaking();
@@ -367,16 +371,75 @@ $("capture").addEventListener("click", async () => {
   paused = false;
 });
 
-// An uploaded photo (for browsers without camera access)
+// An uploaded photo: shown in place of the camera, with the same overlay
+function showStill(url) {
+  uploadView = true;
+  still.onload = () => { sizeOverlay(); };
+  still.src = url;
+  still.hidden = false;
+  video.hidden = true;
+  overlay.hidden = false;
+  $("camera-message").hidden = true;
+  $("back-to-camera").hidden = false;
+  guide = null; bookState = null;
+  sizeOverlay();
+}
+
+// Sharpness, light and glare of the uploaded photo: the same figures the camera view shows live
+let photoQuality = null;
+async function checkQuality() {
+  photoQuality = null;
+  try {
+    const form = new FormData();
+    form.append("image", await frameBlob(960, 0.8), "photo.jpg");
+    const res = await fetch("/api/quality", { method: "POST", body: form });
+    if (!res.ok || !uploadView) return;
+    photoQuality = await res.json();
+  } catch (err) { /* the picture is still read; only the quality figures are missing */ }
+}
+
+// Quality line (red when something is wrong) and a marker where the glare is
+function drawPhotoQuality(ctx, W, H, bottom) {
+  const q = photoQuality;
+  if (!q) return;
+  ctx.font = "13px sans-serif";
+  ctx.fillStyle = q.problems.length ? "#ff3030" : COLORS.idle;
+  ctx.fillText(q.quality + (q.hint ? "   " + q.hint : ""), (30 / 1280) * W + 10, bottom);
+  if (q.problems.includes("glare") && q.glare_at) {
+    const x = q.glare_at[0] * W, y = q.glare_at[1] * H;
+    ctx.strokeStyle = "#ff3030"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 28, 0, 7); ctx.stroke();
+    ctx.fillStyle = "#ff3030"; ctx.font = "bold 16px sans-serif"; ctx.fillText("GLARE", x - 24, y - 36);
+  }
+}
+
+function backToCamera() {
+  if (!uploadView) return;
+  uploadView = false;
+  photoQuality = null;
+  still.hidden = true;
+  still.removeAttribute("src");
+  $("back-to-camera").hidden = true;
+  resetBook();
+  if (cameraReady) { video.hidden = false; sizeOverlay(); } else cameraUnavailable($("camera-message").textContent);
+}
+$("back-to-camera").addEventListener("click", backToCamera);
+
 $("upload").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
   stopSpeaking();
+  resetBook();
+  const url = URL.createObjectURL(file);
+  showStill(url);
+  try { await still.decode(); } catch (err) { setStatus("Could not open that image."); return say("Sorry, I could not open that image."); }
+  checkQuality();
+  if (mode === "book") return handleBookEvent("changed");        // read it page-style, with the reading overlay
   setStatus("Reading the text…");
   say("Reading.");
   try {
-    const data = await postCapture(file, $("book").checked);
+    const data = await postCapture(await frameBlob(1920, 0.92), $("book").checked);
     stopSpeaking();
     if (!data.ok) { setStatus(data.message); return say(data.message); }
     showCaptured(data);
@@ -414,6 +477,7 @@ function setMode(next) {
   $("bookmode").setAttribute("aria-pressed", String(mode === "book"));
   $("capture").firstChild.textContent = mode === "book" ? "Read this page " : "Capture now ";
   wsSend({ type: "mode", mode });
+  if (uploadView && mode === "book") handleBookEvent("changed");   // read the shown photo page-style
 }
 
 // Called for every book-mode reply from the server (about ten times a second)
@@ -426,10 +490,11 @@ function bookTick(reply, fresh) {
   const readingNow = reading && isSpeaking();
   // While a page is being read, nothing the camera sees (the book moving, a hand, a page turn) interrupts it:
   // it stops only when asked to, or when the page is done. A page turn seen meanwhile is read afterwards.
+  if (uploadView) return;
   if (fresh && reply.event && readingNow) { if (reply.event === "changed") pendingTurn = true; return; }
   if (!readingNow && pendingTurn && !bookBusy && !thinking) { pendingTurn = false; return handleBookEvent("changed"); }
   if (fresh && reply.event && !bookBusy) return handleBookEvent(reply.event);
-  if (pageText && !turnPrompted && !bookBusy && !(isSpeaking() || thinking)) {
+  if (pageText && !turnPrompted && !uploadView && !bookBusy && !(isSpeaking() || thinking)) {
     say("Turn the page.");
     turnPrompted = true;
   }
@@ -560,7 +625,7 @@ function onAskEvent(ev, started, wasShown, markShown) {
     if (ev.name === "stop") silence();
     else if (ev.name === "book_on") setMode("book");
     else if (ev.name === "book_off") setMode("normal");
-    else if (ev.name === "new_capture") { guide = null; resetBook(); }
+    else if (ev.name === "new_capture") { guide = null; resetBook(); backToCamera(); }
   } else if (ev.type === "offer_search") {
     $("offer").hidden = false;
     say(ev.text);
@@ -677,11 +742,13 @@ const COLORS = { idle: "#b4b4b4", detect: "#ffc800", hold: "#ffa500", ready: "#0
 
 function sizeOverlay() {
   const dpr = window.devicePixelRatio || 1;
-  overlay.width = Math.round(video.clientWidth * dpr);
-  overlay.height = Math.round(video.clientHeight * dpr);
+  const el = uploadView ? still : video;
+  overlay.width = Math.round(el.clientWidth * dpr);
+  overlay.height = Math.round(el.clientHeight * dpr);
 }
 window.addEventListener("resize", sizeOverlay);
 video.addEventListener("resize", sizeOverlay);
+still.addEventListener("load", sizeOverlay);
 
 function rect(ctx, box, W, H, pad = 0) {
   ctx.strokeRect(box[0] * W - pad, box[1] * H - pad, (box[2] - box[0]) * W + 2 * pad, (box[3] - box[1]) * H + 2 * pad);
@@ -700,6 +767,15 @@ function drawGuideBox(ctx, W, H, color, label) {
 function drawNormal(ctx, W, H) {
   const busy = isSpeaking() || thinking;
   if (busy) return drawGuideBox(ctx, W, H, COLORS.idle, thinking && !isSpeaking() ? "THINKING..." : "SPEAKING...  S = stop");
+  if (uploadView) {
+    if (photoQuality) {
+      ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1;
+      for (const b of photoQuality.lines) rect(ctx, b, W, H);
+      if (photoQuality.box) { ctx.lineWidth = 2; rect(ctx, photoQuality.box, W, H); }
+    }
+    drawGuideBox(ctx, W, H, COLORS.idle, "UPLOADED PHOTO");
+    return drawPhotoQuality(ctx, W, H, H - (20 / 720) * H - 12);
+  }
   if (!guide) return drawGuideBox(ctx, W, H, COLORS.idle, "SHOW TEXT HERE");
   ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1;
   for (const b of guide.lines) rect(ctx, b, W, H);
@@ -718,7 +794,7 @@ function lineAt(pos) {
 }
 
 function drawBook(ctx, W, H) {
-  const turning = !bookState || bookState.state === "TURNING";
+  const turning = !uploadView && (!bookState || bookState.state === "TURNING");
   if (pageLayout && !turning) {
     const L = pageLayout;
     if (L.gutter) { ctx.strokeStyle = "#ffff00"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(L.gutter * W, 0); ctx.lineTo(L.gutter * W, H); ctx.stroke(); }
@@ -744,11 +820,12 @@ function drawBook(ctx, W, H) {
     }
   }
   const bar = 40;
+  if (uploadView) drawPhotoQuality(ctx, W, H, H - bar - 10);
   ctx.fillStyle = "#282828"; ctx.fillRect(0, H - bar, W, bar);
   const s = bookState;
   ctx.fillStyle = "#00ffff"; ctx.font = "bold 16px sans-serif";
-  ctx.fillText(`BOOK MODE   ${pageLabel || "Page -"}   ${bookBusy ? "READING PAGE..." : s ? s.state : "WAITING"}   ` +
-    (s ? `motion ${s.motion} (still < ${s.still_below})   ` : "") + "B = exit", 15, H - 14);
+  ctx.fillText(`BOOK MODE   ${pageLabel || "Page -"}   ${bookBusy ? "READING PAGE..." : uploadView ? "UPLOADED PHOTO" : s ? s.state : "WAITING"}   ` +
+    (s && !uploadView ? `motion ${s.motion} (still < ${s.still_below})   ` : "") + "B = exit", 15, H - 14);
 }
 
 function render() {
@@ -757,7 +834,7 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const W = overlay.width / dpr, H = overlay.height / dpr;
   ctx.clearRect(0, 0, W, H);
-  if (cameraReady && W > 0) { if (mode === "book") drawBook(ctx, W, H); else drawNormal(ctx, W, H); }
+  if ((cameraReady || uploadView) && W > 0) { if (mode === "book") drawBook(ctx, W, H); else drawNormal(ctx, W, H); }
   requestAnimationFrame(render);
 }
 

@@ -19,6 +19,7 @@
       <h2 id="capture-heading">1. Show it to the camera</h2>
       <div class="camera">
         <video id="video" autoplay playsinline muted aria-label="Camera preview"></video>
+        <img id="still" alt="Uploaded photo" hidden>
         <canvas id="overlay" aria-hidden="true"></canvas>
         <p id="camera-message" class="camera-message" hidden></p>
       </div>
@@ -28,6 +29,7 @@
         <button id="bookmode" class="secondary" aria-pressed="false">Book mode <kbd>B</kbd></button>
         <label class="button secondary" for="upload">Upload photo</label>
         <input id="upload" type="file" accept="image/*" capture="environment" class="visually-hidden">
+        <button id="back-to-camera" class="secondary" hidden>Back to camera</button>
         <label class="toggle"><input id="book" type="checkbox"> Uploaded photo is a two-page spread</label>
       </div>
       <details id="captured" hidden>

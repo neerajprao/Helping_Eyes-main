@@ -320,7 +320,7 @@ for t in tests/test_*.py; do python "$t" || break; done
 | `S` | Stop | Stop speaking |
 | `M` | Listen / Stop listening | Turn hands-free listening on or off (the button shows which) |
 
-Upload photo is a fallback for browsers without camera access; tick the box beside it for a two-page spread.
+Upload photo shows the picture where the camera preview is (Back to camera returns to the live view). In book mode the uploaded page is read like a camera page: the same overlay (spine, columns, paragraph order) is drawn on it and the line and word being spoken are highlighted. In normal mode, tick the box beside it for a two-page spread. The photo's sharpness, light and glare are shown on it as on the live view, with a red ring where the glare is (`POST /api/quality`).
 
 The microphone listens only while the application is silent, so that it does not capture its own voice. Use `S` to interrupt a long answer.
 

@@ -7,6 +7,7 @@ recognition and speech output; the server does everything else:
     WS   /ws/live         preview frames in, guidance out (live.py): "Move closer",
                           hold still, auto-capture; page turns in book mode
     POST /api/capture     full-size photo -> text kept for questions
+    POST /api/quality     uploaded photo -> sharpness, light, glare and text boxes
     POST /api/book/page   full-size photo of a book view -> what to read, from where
     POST /api/ask         a spoken or typed request -> commands, answers, web lookup,
                           streamed as NDJSON (the routing lives in commands.py)
@@ -49,7 +50,8 @@ from pydantic import BaseModel
 import commands
 from commands import classify
 from assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
-from vision import BookReader, BookWatcher, LiveGuide, find_text_region, read_page, read_text_enhanced
+from vision import (BookReader, BookWatcher, LiveGuide, _norm, assess_quality, find_text_region, read_page,
+                    read_text_enhanced)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("helping_eyes.web")
@@ -290,6 +292,24 @@ async def capture(request: Request, image: UploadFile = File(...), sid: str = Fo
             "label": layout.label() if layout else "",
             "running_title": (layout.running_title() or "") if layout else "",
             "message": "Got it. What would you like to know?"}
+
+
+@app.post("/api/quality")
+async def quality(request: Request, image: UploadFile = File(...)) -> dict:
+    """Sharpness, light and glare of an uploaded photo (what the camera view shows live), plus where the text is."""
+    _rate_limit(request)
+    frame = _decode(await image.read())
+    h, w = frame.shape[:2]
+
+    def work():
+        with _ocr_lock:
+            box, lines = find_text_region(frame, 8)
+        return box, lines, assess_quality(frame, box)
+
+    box, lines, q = await run_in_threadpool(work)
+    return {"box": _norm(box, w, h) if box else None, "lines": [_norm(l.box, w, h) for l in lines],
+            "quality": q.summary(), "problems": list(q.problems), "hint": q.hint(),
+            "glare_at": list(q.glare_at) if q.glare_at else None}
 
 
 @app.post("/api/book/page")
