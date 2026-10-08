@@ -5,7 +5,8 @@ Run Helping Eyes on this computer, the same app that runs on the host:
     python run.py --no-browser       start it and print the address only
     python run.py --port 8000        use another port (default 7860; the next free one if it is taken)
     python run.py --host 0.0.0.0     also reachable from other devices on your network
-    python run.py --share            also give it a public https address (free Cloudflare tunnel, no account)
+    python run.py --share            also give it a public https address: your fixed ngrok address when NGROK_DOMAIN is
+                                     set in helping_eyes/.env, otherwise a free Cloudflare tunnel (a new address each run)
     python run.py --no-ollama        do not start Ollama (the local Qwen model in the page's Model menu)
 
 It checks your setup, starts Ollama if it is installed and not already running (and stops it again at the
@@ -62,19 +63,24 @@ def missing_packages() -> list:
     return missing
 
 
-def read_key() -> str:
-    """The language-model key the server will use: the environment wins, even when it is empty (the server
-    never overrides a variable that is already set), otherwise helping_eyes/.env; '' when there is none."""
-    if "LLM_API_KEY" in os.environ:
-        return os.environ["LLM_API_KEY"]
+def read_setting(wanted: str) -> str:
+    """A setting the server will use: the environment wins, even when it is empty (the server never overrides a
+    variable that is already set), otherwise helping_eyes/.env; '' when there is none."""
+    if wanted in os.environ:
+        return os.environ[wanted]
     try:
         for line in open(ENV_FILE):
             name, _, value = line.strip().partition("=")
-            if name.strip() == "LLM_API_KEY":
+            if name.strip() == wanted:
                 return value.strip().strip("'\"")
     except OSError:
         pass
     return ""
+
+
+def read_key() -> str:
+    """The language-model key the server will use ('' when there is none)."""
+    return read_setting("LLM_API_KEY")
 
 
 def port_is_free(port: int, host: str = "127.0.0.1") -> bool:
@@ -130,9 +136,55 @@ def tunnel_url(line: str):
     return match.group(0) if match else None
 
 
+def ngrok_domain() -> str:
+    """The fixed ngrok address from NGROK_DOMAIN (a bare name like abc-def.ngrok-free.app), or ''."""
+    return re.sub(r"^https?://|/.*$", "", read_setting("NGROK_DOMAIN").strip())
+
+
+def start_ngrok(port: int, domain: str):
+    """Open the ngrok tunnel with your fixed free domain. Returns the processes to stop at the end, or None when
+    ngrok is missing or cannot start (it says why)."""
+    if not shutil.which("ngrok"):
+        print("  share     ngrok is not installed. Install it and add your token (one time):")
+        print("            brew install ngrok      then      ngrok config add-authtoken <your token from dashboard.ngrok.com>")
+        return None
+    tunnel = subprocess.Popen(["ngrok", "http", f"--url={domain}", f"127.0.0.1:{port}", "--log=stdout", "--log-format=logfmt"],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    problems = []
+
+    def watch():
+        for line in tunnel.stdout:
+            if "lvl=eror" in line or "lvl=crit" in line or "ERR_NGROK" in line:
+                problems.append(line.strip())
+    threading.Thread(target=watch, daemon=True).start()
+    for _ in range(20):                                  # up to 5 s for it to come up or fail
+        time.sleep(0.25)
+        if tunnel.poll() is not None:
+            break
+    if tunnel.poll() is not None:
+        reason = problems[-1] if problems else "it stopped at once"
+        print(f"  share     ngrok did not start: {reason[-200:]}")
+        print("            (check the token with  ngrok config check  and that the domain is yours; old versions need  brew upgrade ngrok)")
+        return None
+    procs = [tunnel]
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        procs.append(subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())]))
+    print(f"\nPublic address (always the same; works while this computer is awake and this program runs):\n  https://{domain}\n")
+    return procs
+
+
 def start_share(port: int):
-    """Open a free Cloudflare Quick Tunnel to this server and keep the computer awake while it runs.
-    Returns the processes to stop at the end, or None when cloudflared is not installed."""
+    """Open a public tunnel to this server and keep the computer awake while it runs: the fixed ngrok address when
+    NGROK_DOMAIN is set, otherwise a free Cloudflare Quick Tunnel (a new address each run).
+    Returns the processes to stop at the end, or None when no tunnel could be started."""
+    domain = ngrok_domain()
+    if domain:
+        procs = start_ngrok(port, domain)
+        if procs:
+            return procs
+        print("            falling back to a Cloudflare tunnel, whose address changes every run.")
+    else:
+        print("  share     for a fixed address, set NGROK_DOMAIN=<your free ngrok domain> in helping_eyes/.env")
     if not shutil.which("cloudflared"):
         print("  share     cloudflared is not installed, so there is no public address. Install it with:")
         print("            brew install cloudflared      (other systems: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)")

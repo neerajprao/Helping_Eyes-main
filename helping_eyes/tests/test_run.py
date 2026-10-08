@@ -98,6 +98,33 @@ def test_tunnel_url_is_found_in_cloudflared_output():
     assert run.tunnel_url("INF Requesting new quick Tunnel on trycloudflare.com...") is None
 
 
+def test_the_fixed_ngrok_address_is_read_from_the_settings_and_cleaned():
+    saved_env, saved_file = os.environ.pop("NGROK_DOMAIN", None), run.ENV_FILE
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
+            f.write("NGROK_DOMAIN = 'https://quiet-fox.ngrok-free.app/'\n")
+        run.ENV_FILE = f.name
+        assert run.ngrok_domain() == "quiet-fox.ngrok-free.app"       # a pasted https:// and a trailing / do no harm
+        os.environ["NGROK_DOMAIN"] = ""
+        assert run.ngrok_domain() == ""                              # no domain: the Cloudflare tunnel is used
+    finally:
+        run.ENV_FILE = saved_file
+        os.environ.pop("NGROK_DOMAIN", None)
+        if saved_env is not None:
+            os.environ["NGROK_DOMAIN"] = saved_env
+        os.unlink(f.name)
+
+
+def test_a_missing_ngrok_says_how_to_install_it_and_falls_back():
+    original, domain = run.shutil.which, run.ngrok_domain
+    run.shutil.which, run.ngrok_domain = (lambda name: None), (lambda: "quiet-fox.ngrok-free.app")
+    try:
+        assert run.start_ngrok(7860, "quiet-fox.ngrok-free.app") is None
+        assert run.start_share(7860) is None                          # no ngrok and no cloudflared: nothing starts, no crash
+    finally:
+        run.shutil.which, run.ngrok_domain = original, domain
+
+
 def test_share_without_cloudflared_says_how_to_install_it(capsys=None):
     original = run.shutil.which
     run.shutil.which = lambda name: None

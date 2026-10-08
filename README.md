@@ -286,7 +286,7 @@ python run.py --share          # prints a public https address
 
 ### Hosting
 
-The Mac is the server (Apple Vision exists only on macOS). `python run.py --share`, described above, gives it a public `https` address with a free tunnel. A step-by-step guide, with the settings and what to expect, is in [hosting.md](hosting.md). After starting, open `/api/health`: `llm_configured` must be `true` and `ocr` must be `ready`.
+The Mac is the server (Apple Vision exists only on macOS). `python run.py --share`, described above, gives it a public `https` address with a free tunnel: a fixed ngrok address when `NGROK_DOMAIN` is set in `helping_eyes/.env` (free account and domain, see hosting.md), otherwise a Cloudflare tunnel whose address changes each run. A step-by-step guide, with the settings and what to expect, is in [hosting.md](hosting.md). After starting, open `/api/health`: `llm_configured` must be `true` and `ocr` must be `ready`.
 
 ### Tests
 
