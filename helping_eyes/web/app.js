@@ -24,65 +24,32 @@ function escapeHtml(s) {
 }
 
 // ================================================================ speech out
-// Every word is spoken by Google's Gemini voice (server /api/tts). There is no browser voice.
-const speechQueue = [];       // {text, el, start, audio}: waiting to be spoken
+const synth = window.speechSynthesis || null;
+const speechQueue = [];       // {text, el, start}: waiting to be spoken
 let speakingNow = null;
 let speechPos = null;         // book mode: character of the page being spoken right now
 let lastSpeechActivity = 0;   // performance.now() when speech last started or ended (echo guard)
-let player = null;            // the <audio> element that is playing now
-const PREFETCH = 3;           // sentences fetched ahead, so the voice does not pause between them
-const TRIES = 4;              // attempts per sentence (the free speech quota can say "wait a moment")
 
 const isSpeaking = () => !!speakingNow || speechQueue.length > 0;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Ask the server for the audio of one sentence; resolves to an object URL, or null when it kept failing
-function fetchAudio(item) {
-  if (item.audio) return item.audio;
-  item.audio = (async () => {
-    for (let attempt = 1; attempt <= TRIES; attempt++) {
-      const slow = new AbortController();
-      const giveUp = setTimeout(() => slow.abort(), 45000);
-      try {
-        const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ text: item.text }), signal: slow.signal });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return URL.createObjectURL(await res.blob());
-      } catch (err) {
-        if (attempt === TRIES) return null;
-        await sleep(1500 * attempt);
-      } finally {
-        clearTimeout(giveUp);
-      }
-    }
-    return null;
-  })();
-  return item.audio;
-}
-
-function prefetch() {
-  speechQueue.slice(0, PREFETCH).forEach(fetchAudio);
+// A number above 9999 is nearly always a serial, batch or phone number: say its digits one by one,
+// never "twelve thousand three hundred...". Comma-grouped forms (12,345,678) count too.
+const LONG_NUMBER = /(?<![\d,])(?:\d{1,3}(?:,\d{3})+|\d{5,})(?!\d)/g;
+function spokenForm(text) {
+  return text.replace(LONG_NUMBER, (m) => {
+    const digits = m.replace(/,/g, "");
+    return Number(digits) > 9999 ? digits.split("").join(" ") : m;
+  });
 }
 
 // start: for a piece of a book page, its offset in the page text (enables the reading position)
 function say(text, { el = null, start = null } = {}) {
-  if (!text || !text.trim()) return;
+  if (!synth || !text || !text.trim()) return;
   if (start !== null) start += text.length - text.trimStart().length;
-  speechQueue.push({ text: text.trim(), el, start, audio: null });
+  speechQueue.push({ text: text.trim(), el, start });
   lastSpeechActivity = performance.now();
   if (recognizer) recognizer.abort();      // the microphone must not hear the app
-  prefetch();
   if (!speakingNow) speakNext();
-}
-
-// Mark the word at charIndex in the sentence being spoken, and move the book reading position
-function markWord(item, charIndex) {
-  if (item.start !== null) speechPos = item.start + charIndex;
-  if (!item.el) return;
-  const t = item.text;
-  const end = t.slice(charIndex).search(/\s|$/) + charIndex;
-  item.el.innerHTML = escapeHtml(t.slice(0, charIndex)) + "<mark>" + escapeHtml(t.slice(charIndex, end)) +
-    "</mark>" + escapeHtml(t.slice(end));
 }
 
 function speakNext() {
@@ -94,41 +61,49 @@ function speakNext() {
     return;
   }
   speakingNow = item;
-  prefetch();
+  // The spoken text may differ from the shown text (long numbers are spelled out), so the word position
+  // is mapped back by counting words: both texts have the same words, except spelled-out digits.
+  const u = new SpeechSynthesisUtterance(spokenForm(item.text));
+  u.lang = "en-US";
+  u.rate = 1.0;
+  u.onstart = () => { if (item.start !== null) speechPos = item.start; };
+  u.onboundary = (e) => {
+    if (e.name !== "word") return;
+    const shown = shownIndex(item.text, u.text, e.charIndex);
+    if (item.start !== null) speechPos = item.start + shown;
+    if (!item.el) return;
+    const t = item.text;
+    const end = t.slice(shown).search(/\s|$/) + shown;
+    item.el.innerHTML = escapeHtml(t.slice(0, shown)) + "<mark>" + escapeHtml(t.slice(shown, end)) +
+      "</mark>" + escapeHtml(t.slice(end));
+  };
+  // Some browsers never report the end of an utterance: don't let that freeze the app
+  const watchdog = setTimeout(() => finished(), 4000 + u.text.length * 120);
   const finished = () => {
-    if (speakingNow !== item) return;      // a stale event from a cancelled sentence
+    clearTimeout(watchdog);
+    if (speakingNow !== item) return;      // a stale event from a cancelled utterance
     if (item.el) item.el.textContent = item.text;
-    if (item.start !== null) speechPos = item.start + item.text.length;   // keep the reading position moving
-    if (item.url) URL.revokeObjectURL(item.url);
-    player = null;
+    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
     speakNext();
   };
-  fetchAudio(item).then((url) => {
-    if (speakingNow !== item) { if (url) URL.revokeObjectURL(url); return; }      // stopped while waiting
-    if (url) return playAudio(item, url, finished);
-    setStatus("Google's voice is not available right now (is LLM_API_KEY set, or is the free speech limit used up?). The answer is on screen.");
-    finished();
-  });
+  u.onend = u.onerror = finished;
+  synth.speak(u);
 }
 
-function playAudio(item, url, finished) {
-  item.url = url;
-  const audio = new Audio(url);
-  player = audio;
-  let lastIndex = -1;
-  audio.onplay = () => { if (item.start !== null) speechPos = item.start; };
-  audio.ontimeupdate = () => {
-    if (!audio.duration) return;
-    // The server gives no word times: estimate the word from how far through the audio we are
-    let index = Math.min(item.text.length - 1, Math.floor((audio.currentTime / audio.duration) * item.text.length));
-    while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
-    if (index !== lastIndex) { lastIndex = index; markWord(item, index); }
-  };
-  // Never freeze the app if the audio neither plays nor ends
-  const watchdog = setTimeout(() => done(), 8000 + item.text.length * 150);
-  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = null; audio.pause(); finished(); };
-  audio.onended = audio.onerror = done;
-  audio.play().catch(done);
+// Position in the shown text of the word that starts at spokenIndex in the spoken text
+function shownIndex(shown, spoken, spokenIndex) {
+  if (shown === spoken) return spokenIndex;
+  const wordNo = spoken.slice(0, spokenIndex).split(/\s+/).filter(Boolean).length;
+  const longNumbers = [...shown.matchAll(LONG_NUMBER)].filter((m) => Number(m[0].replace(/,/g, "")) > 9999);
+  // Each spelled-out number is several spoken words but one shown word
+  let spokenWords = 0, result = shown.length;
+  for (const m of shown.matchAll(/\S+/g)) {
+    const isLong = longNumbers.some((n) => n.index >= m.index && n.index < m.index + m[0].length);
+    const count = isLong ? m[0].replace(/,/g, "").replace(/\D/g, "").length : 1;
+    if (wordNo < spokenWords + count) { result = m.index; break; }
+    spokenWords += count;
+  }
+  return Math.min(result, shown.length);
 }
 
 // Stop talking (and keep any answer that is still arriving)
@@ -137,7 +112,7 @@ function silence() {
   speakingNow = null;
   speechPos = null;
   lastSpeechActivity = performance.now();
-  if (player) { player.onended = player.onerror = null; player.pause(); player = null; }
+  if (synth) synth.cancel();
   answerEl.querySelectorAll("p").forEach((p) => { if (p.querySelector("mark")) p.textContent = p.textContent; });
 }
 

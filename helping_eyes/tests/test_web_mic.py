@@ -33,14 +33,11 @@ class FakeRec {
   finish() { if (!this.ended) { this.ended = true; if (this.onend) this.onend(); } }
 }
 window.SpeechRecognition = window.webkitSpeechRecognition = FakeRec;
-// Speech out is Gemini's voice: /api/tts returns audio, which an <audio> element plays. Fake both: record the text, "play" for 5 ms.
+const fakeSynth = { speak(u) { window.__spoken.push(u.text); setTimeout(() => { if (u.onend) u.onend(); }, 5); }, cancel() {} };
+Object.defineProperty(window, "speechSynthesis", { value: fakeSynth });
+window.SpeechSynthesisUtterance = function (text) { this.text = text; };
 const realFetch = window.fetch;
-window.fetch = (url, opts) => {
-  if (String(url).includes("/api/ask")) window.__asked.push(JSON.parse(opts.body).question);
-  if (String(url).includes("/api/tts")) { window.__spoken.push(JSON.parse(opts.body).text); return Promise.resolve(new Response(new Blob(["x"], { type: "audio/wav" }))); }
-  return realFetch(url, opts);
-};
-window.Audio = class { constructor() { this.duration = 0; } play() { setTimeout(() => { if (this.onended) this.onended(); }, 5); return Promise.resolve(); } pause() {} };
+window.fetch = (url, opts) => { if (String(url).includes("/api/ask")) window.__asked.push(JSON.parse(opts.body).question); return realFetch(url, opts); };
 window.__say = (words, isFinal) => {                       // the speech engine "hears" something
   const rec = window.__recs[window.__recs.length - 1];
   const result = Object.assign([{ transcript: words }], { isFinal });
