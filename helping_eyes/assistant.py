@@ -71,8 +71,10 @@ Rules:
   prices and safety information.
 - Today's date is {today}.
 - For expiry questions, trust the "Date checks" below: they were computed by the app and are
-  correct. Do not redo the date arithmetic yourself. If there is no expiry date, say the text
-  does not show one; never guess it from a manufacturing date.
+  correct. Do not redo the date arithmetic yourself. Answer in your own natural, conversational
+  words, in one or two sentences: say whether it has expired, and when it is or was valid until.
+  Never say it has expired unless the Date checks say HAS EXPIRED. If there is no expiry date, say the text does not
+  show one; never guess it from a manufacturing date.
 - Questions about the page number, book title or chapter are answered from the "Page facts"
   below: they were read from the printed page numbers, header and headings and are reliable.
 
@@ -204,7 +206,9 @@ def expiry_dates(text: str) -> List[Tuple[str, date]]:
 def expiry_checks(text: str, today: date = None) -> str:
     """One line per expiry date found, saying whether it has passed."""
     today = today or date.today()
-    lines = [f'"{printed}" means valid until {exp.strftime("%d %B %Y")}: it {"HAS EXPIRED" if exp < today else "has NOT expired"}.'
+    lines = [f'Printed "{printed}" = valid until {exp.strftime("%d %B %Y")}. Today is {today.strftime("%d %B %Y")}, '
+             + ("which is AFTER that date, so it HAS EXPIRED." if exp < today
+                else "which is BEFORE that date, so it has NOT expired and is still good.")
              for printed, exp in expiry_dates(text)]
     return "\n".join(lines) or "No expiry date found in the text."
 
@@ -212,20 +216,6 @@ def expiry_checks(text: str, today: date = None) -> str:
 # Questions with an exact answer are answered in code, not by the model
 _EXPIRY_QUESTION = re.compile(r"\b(expir\w*|exp(iry)? date|best before|use by|out of date|still (good|valid|usable|okay|ok))\b", re.I)
 _PAGE_QUESTION = re.compile(r"^\s*(what|which)\s+page(\s+(is\s+(this|it)|am\s+i\s+on|are\s+we\s+on))?\s*\??\s*$", re.I)
-
-
-def expiry_answer(text: str, today: date = None) -> Optional[str]:
-    """Direct spoken answer to an expiry question, or None when no expiry date is printed."""
-    today = today or date.today()
-    dates = expiry_dates(text)
-    if not dates:
-        return None
-    parts = []
-    for _, exp in dates:
-        when = exp.strftime("%d %B %Y").lstrip("0")
-        parts.append(f"Yes, it has expired. It was valid until {when}." if exp < today
-                     else f"No, it has not expired. It is valid until {when}.")
-    return " ".join(dict.fromkeys(parts))
 
 
 # ---------------- web search ----------------
@@ -309,11 +299,10 @@ class DocAssistant:
             generation = self._generation
             self.last_not_in_text = False
 
-        # Exact answers from code (reliable with any model size)
+        # Exact answer from code (reliable with any model size). Expiry is not here: the model words that answer
+        # itself, from the "Date checks" the code computes for it.
         direct = None
-        if _EXPIRY_QUESTION.search(question):
-            direct = expiry_answer(self.document)
-        elif _PAGE_QUESTION.match(question) and self.page_label:
+        if _PAGE_QUESTION.match(question) and self.page_label:
             direct = f"This is {self.page_label[0].lower() + self.page_label[1:]}."
         if direct:
             yield direct
@@ -326,7 +315,13 @@ class DocAssistant:
                                           date_checks=expiry_checks(self.document),
                                           facts=self.facts or "None (not a book page).")
             messages = [{"role": "system", "content": system}] + self.history
-            messages.append({"role": "user", "content": question})
+            content = question
+            if _EXPIRY_QUESTION.search(question):
+                # The code works out the dates; the model only puts the verdict into its own words
+                verdict = expiry_checks(self.document)
+                content += (f"\n\n[Checked by the app, and certain: {verdict} Answer in your own natural words, in one or two "
+                            "sentences, and do not mention this note.]")
+            messages.append({"role": "user", "content": content})
 
         answer = []
         for sentence in self._stream(messages, generation, markers=(READ_ALL, NOT_IN_TEXT)):

@@ -412,13 +412,13 @@ async function checkQuality() {
 }
 
 // Quality line (red when something is wrong) and a marker where the glare is
-function drawPhotoQuality(ctx, W, H, bottom) {
+function drawPhotoQuality(ctx, W, H, bottom, marker = true) {
   const q = photoQuality;
   if (!q) return;
   ctx.font = "13px sans-serif";
   ctx.fillStyle = q.problems.length ? "#ff3030" : COLORS.idle;
   ctx.fillText(q.quality + (q.hint ? "   " + q.hint : ""), (30 / 1280) * W + 10, bottom);
-  if (q.problems.includes("glare") && q.glare_at) {
+  if (marker && q.problems.includes("glare") && q.glare_at) {
     const x = q.glare_at[0] * W, y = q.glare_at[1] * H;
     ctx.strokeStyle = "#ff3030"; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(x, y, 28, 0, 7); ctx.stroke();
@@ -869,7 +869,7 @@ function drawBook(ctx, W, H) {
     }
   }
   const bar = 40;
-  if (uploadView) drawPhotoQuality(ctx, W, H, H - bar - 10);
+  if (uploadView) drawPhotoQuality(ctx, W, H, H - bar - 10, false);      // book mode: the figures only, no ring on the page
   ctx.fillStyle = "#282828"; ctx.fillRect(0, H - bar, W, bar);
   const s = bookState;
   ctx.fillStyle = "#00ffff"; ctx.font = "bold 16px sans-serif";

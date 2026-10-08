@@ -30,7 +30,7 @@ The app runs on your own Mac. With `python run.py --share` it also gets a public
 | File | What it does |
 |---|---|
 | `index.html` | The page layout: the camera picture, the buttons, the Model menu and the answer area. |
-| `app.js` | The ears, mouth and eyes in the browser. It opens the camera, sends pictures to the server, plays the spoken hints and answers (the server's voice, with the browser's own voice as a backup), listens to your voice, and draws the boxes and the highlighted word on top of the camera picture. An uploaded photo is shown in its place, with the same boxes, a red ring where there is glare, and (in book mode) the same reading highlight. It makes no decisions itself; it does what the server says. |
+| `app.js` | The ears, mouth and eyes in the browser. It opens the camera, sends pictures to the server, plays the spoken hints and answers (the server's voice, with the browser's own voice as a backup), listens to your voice, and draws the boxes and the highlighted word on top of the camera picture. An uploaded photo is shown in its place, with the same boxes, a red ring where there is glare (normal mode only), and (in book mode) the same reading highlight. It makes no decisions itself; it does what the server says. |
 | `style.css` | How the page looks (colours, big buttons, dark mode). On a laptop screen everything fits the window with no scrolling. |
 | `favicon.svg` | The small icon in the browser tab. |
 

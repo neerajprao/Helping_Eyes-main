@@ -42,7 +42,7 @@ Put these in `helping_eyes/.env` (see `.env.example`):
 - **The address works only while the Mac is awake and `run.py --share` is running.** It is new every run, so send the new address each time.
 - **Run only one copy.** Each visitor's captured text and conversation are kept in the server's memory, so two copies would not share them. A restart clears them.
 - **Anyone with the address uses your Gemini key's quota**, so share it with people you trust. The app limits how many requests one visitor can make per minute.
-- **The free Gemini limits.** The free AI plan has a daily limit. When it is used up, the app says the model is busy. Expiry questions, page-number questions and "read everything" never use the AI, so they keep working.
+- **The free Gemini limits.** The free AI plan has a daily limit. When it is used up, the app says the model is busy. Page-number questions and "read everything" never use the AI, so they keep working. Expiry questions need the AI to word the answer, but the dates are always worked out by the app.
 - **Privacy.** The text of what you capture (never the picture) is sent to the AI service, and the sentences to be spoken are sent to Microsoft's voice service. Check their terms before using private documents.
 - **Memory.** The text reader needs roughly 0.4 to 1 GB while it reads; a Mac has plenty.
 

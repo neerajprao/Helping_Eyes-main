@@ -98,11 +98,14 @@ def test_read_all_reply_is_passed_on_alone():
     assert list(doc.ask("tell me everything on it please")) == [da.READ_ALL]
 
 
-def test_expiry_questions_never_call_the_model():
-    doc = setup("should not be used")
+def test_expiry_questions_are_answered_by_the_model_from_the_computed_date_check():
+    doc = setup("Yes, it ran out in April 2020, so I wouldn't use it.")
     answer = " ".join(doc.ask("has it expired?"))
-    assert "expired" in answer and "April 2020" in answer
-    assert Fake.requests == []
+    assert answer == "Yes, it ran out in April 2020, so I wouldn't use it."          # the model's own words, not a fixed sentence
+    system = Fake.requests[0][1]["messages"][0]["content"]
+    assert "HAS EXPIRED" in system and "April 2020" in system                         # the code did the date arithmetic
+    asked = Fake.requests[0][1]["messages"][-1]["content"]
+    assert asked.startswith("has it expired?") and "HAS EXPIRED" in asked              # and the verdict is repeated next to the question
 
 
 def test_no_key_means_no_authorization_header():

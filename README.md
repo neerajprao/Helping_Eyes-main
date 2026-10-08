@@ -99,7 +99,7 @@ flowchart TB
             OCRP["Part A: reading text (OCR)<br/>Apple Vision"]
         end
 
-        DA["assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
+        DA["assistant.py<br/>answers only from the captured text,<br/>expiry verdict computed in code"]
     end
 
     VOICE["commands.py /api/tts<br/>Edge neural voice<br/>(browser voice if it fails)"]
@@ -330,7 +330,7 @@ for t in tests/test_*.py; do python "$t" || break; done
 
 On a laptop-sized window (at least 1000 × 560) the whole page fits the screen without scrolling: the camera takes the left half and shrinks to the height that is left, and the answer scrolls inside its own box. Phones keep the normal scrolling page.
 
-Upload photo shows the picture where the camera preview is (the camera is switched off while the photo is shown; Back to camera, or New item, switches it back on and returns to the live view). In book mode the uploaded page is read like a camera page: the same overlay (spine, columns, paragraph order) is drawn on it and the line and word being spoken are highlighted. In normal mode, tick the box beside it for a two-page spread. The photo's sharpness, light and glare are shown on it as on the live view, with a red ring where the glare is (`POST /api/quality`).
+Upload photo shows the picture where the camera preview is (the camera is switched off while the photo is shown; Back to camera, or New item, switches it back on and returns to the live view). In book mode the uploaded page is read like a camera page: the same overlay (spine, columns, paragraph order) is drawn on it and the line and word being spoken are highlighted. In normal mode, tick the box beside it for a two-page spread. The photo's sharpness, light and glare are shown on it as on the live view, with a red ring where the glare is in normal mode (in book mode only the figures are shown, no ring on the page) (`POST /api/quality`).
 
 The microphone listens only while the application is silent, so that it does not capture its own voice. Use `S` to interrupt a long answer.
 
@@ -441,7 +441,7 @@ Measured on an Apple Silicon laptop running the app locally (measured with the e
 | Capture request, full-size photo of a label | 0.6 s |
 | Book page request (test pages, with word boxes) | 0.24–0.41 s; a dense 1920×1080 spread about 0.9 s |
 | Full read-out request | Immediate (no model involved) |
-| Expiry and page-number answers | Immediate (computed in code, no model call) |
+| Page-number answers | Immediate (computed in code, no model call). Expiry answers use the model, which words the verdict the code computed |
 | First spoken sentence of an answer | Depends on the provider and its load; not yet measured with Gemini Flash-Lite |
 | Web lookup (search and answer) | Not yet measured (one search and two model calls) |
 | Book mode, page turn to start of reading | About 1.5–2 s (0.8 s settling, 0.4–0.9 s recognition, speech start-up) |
@@ -457,7 +457,7 @@ A medicine package can contain hundreds of words. Instead of reading everything 
 Helping Eyes detects text directly rather than specific object categories, so any item with readable text — a page, a medicine strip, a food package, a sign or a screen — can be captured.
 
 ### 3. Grounded answers
-The model is instructed to use only the captured text and to state when the answer is not present, and expiry dates are evaluated in code rather than by the model. Only the captured text, never the picture, is sent to the language model.
+The model is instructed to use only the captured text and to state when the answer is not present, and expiry dates are evaluated in code rather than by the model (the model is told the verdict and words the answer itself). Only the captured text, never the picture, is sent to the language model.
 
 ### 4. Hands-free book reading
 A custom OpenCV pipeline detects page turns, splits two-page spreads, orders columns and paragraphs, and highlights the word being read, allowing a book to be read page by page without any manual interaction.

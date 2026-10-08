@@ -87,9 +87,9 @@ def test_capture_then_answers_from_the_text():
     assert all(e["source"] == "document" for e in events if e["type"] == "sentence")
     assert "PARACETAMOL" in spoken(events).upper()
 
-    # an expiry question is answered by code from the date on the label
+    # an expiry question goes to the language model (with the date check computed by code); without a model it says so
     answer = spoken(ask("when does it expire?"))
-    assert "expired" in answer and "April 2020" in answer, answer
+    assert answer and "Yes, it has expired" not in answer, answer
 
     # repeat gives the same answer back
     assert spoken(ask("repeat")) == answer
