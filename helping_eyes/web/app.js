@@ -24,46 +24,43 @@ function escapeHtml(s) {
 }
 
 // ================================================================ speech out
-// The voice is Gemini's (server /api/tts). If that fails or is switched off, the browser's own voice is used.
-const synth = window.speechSynthesis || null;
+// Every word is spoken by Google's Gemini voice (server /api/tts). There is no browser voice.
 const speechQueue = [];       // {text, el, start, audio}: waiting to be spoken
 let speakingNow = null;
 let speechPos = null;         // book mode: character of the page being spoken right now
 let lastSpeechActivity = 0;   // performance.now() when speech last started or ended (echo guard)
-let cloudVoice = true;        // false after a failure, until cloudVoiceRetry
-let cloudVoiceRetry = 0;
 let player = null;            // the <audio> element that is playing now
 const PREFETCH = 3;           // sentences fetched ahead, so the voice does not pause between them
-
-// Does the server have a Gemini voice? Known before the first sentence is fetched
-const voiceKnown = fetch("/api/health").then((r) => r.json()).then((h) => { if (h.tts === false) cloudVoice = false; }).catch(() => {});
+const TRIES = 4;              // attempts per sentence (the free speech quota can say "wait a moment")
 
 const isSpeaking = () => !!speakingNow || speechQueue.length > 0;
-const cloudVoiceUsable = () => cloudVoice || performance.now() > cloudVoiceRetry;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Ask the server for the audio of one sentence; resolves to an object URL, or null when it cannot
+// Ask the server for the audio of one sentence; resolves to an object URL, or null when it kept failing
 function fetchAudio(item) {
   if (item.audio) return item.audio;
   item.audio = (async () => {
-    await voiceKnown;
-    if (!cloudVoiceUsable()) return null;
-    try {
-      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ text: item.text }) });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      cloudVoice = true;
-      return URL.createObjectURL(await res.blob());
-    } catch (err) {
-      cloudVoice = false;
-      cloudVoiceRetry = performance.now() + 60000;       // use the browser voice for a minute, then try again
-      return null;
+    for (let attempt = 1; attempt <= TRIES; attempt++) {
+      const slow = new AbortController();
+      const giveUp = setTimeout(() => slow.abort(), 45000);
+      try {
+        const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ text: item.text }), signal: slow.signal });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return URL.createObjectURL(await res.blob());
+      } catch (err) {
+        if (attempt === TRIES) return null;
+        await sleep(1500 * attempt);
+      } finally {
+        clearTimeout(giveUp);
+      }
     }
+    return null;
   })();
   return item.audio;
 }
 
 function prefetch() {
-  if (!cloudVoiceUsable()) return;
   speechQueue.slice(0, PREFETCH).forEach(fetchAudio);
 }
 
@@ -99,17 +96,18 @@ function speakNext() {
   speakingNow = item;
   prefetch();
   const finished = () => {
-    if (speakingNow !== item) return;      // a stale event from a cancelled utterance
+    if (speakingNow !== item) return;      // a stale event from a cancelled sentence
     if (item.el) item.el.textContent = item.text;
-    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
+    if (item.start !== null) speechPos = item.start + item.text.length;   // keep the reading position moving
     if (item.url) URL.revokeObjectURL(item.url);
     player = null;
     speakNext();
   };
   fetchAudio(item).then((url) => {
     if (speakingNow !== item) { if (url) URL.revokeObjectURL(url); return; }      // stopped while waiting
-    if (url) playAudio(item, url, finished);
-    else speakWithBrowser(item, finished);
+    if (url) return playAudio(item, url, finished);
+    setStatus("Google's voice is not available right now (is LLM_API_KEY set, or is the free speech limit used up?). The answer is on screen.");
+    finished();
   });
 }
 
@@ -126,22 +124,11 @@ function playAudio(item, url, finished) {
     while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
     if (index !== lastIndex) { lastIndex = index; markWord(item, index); }
   };
-  audio.onended = audio.onerror = finished;
-  audio.play().catch(() => { item.url = null; URL.revokeObjectURL(url); player = null; speakWithBrowser(item, finished); });
-}
-
-function speakWithBrowser(item, finished) {
-  if (!synth) return finished();
-  const u = new SpeechSynthesisUtterance(item.text);
-  u.lang = "en-US";
-  u.rate = 1.0;
-  u.onstart = () => { if (item.start !== null) speechPos = item.start; };
-  u.onboundary = (e) => { if (e.name === "word") markWord(item, e.charIndex); };
-  // Some browsers never report the end of an utterance: don't let that freeze the app
-  const watchdog = setTimeout(() => done(), 4000 + item.text.length * 120);
-  const done = () => { clearTimeout(watchdog); finished(); };
-  u.onend = u.onerror = done;
-  synth.speak(u);
+  // Never freeze the app if the audio neither plays nor ends
+  const watchdog = setTimeout(() => done(), 8000 + item.text.length * 150);
+  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = null; audio.pause(); finished(); };
+  audio.onended = audio.onerror = done;
+  audio.play().catch(done);
 }
 
 // Stop talking (and keep any answer that is still arriving)
@@ -151,7 +138,6 @@ function silence() {
   speechPos = null;
   lastSpeechActivity = performance.now();
   if (player) { player.onended = player.onerror = null; player.pause(); player = null; }
-  if (synth) synth.cancel();
   answerEl.querySelectorAll("p").forEach((p) => { if (p.querySelector("mark")) p.textContent = p.textContent; });
 }
 

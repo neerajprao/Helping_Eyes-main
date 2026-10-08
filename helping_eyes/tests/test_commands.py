@@ -59,6 +59,15 @@ def test_web_search_phrases():
     assert (cmd.name, cmd.query) == ("search_for", "ibuprofen dose")
 
 
+def test_numbers_above_9999_are_spoken_digit_by_digit():
+    from commands import spoken_form
+    assert spoken_form("Serial number 123456 ok") == "Serial number 1 2 3 4 5 6 ok"
+    assert spoken_form("Batch AB12345X") == "Batch AB1 2 3 4 5X"
+    assert spoken_form("Total 12,345,678 units") == "Total 1 2 3 4 5 6 7 8 units"
+    assert spoken_form("Take 9999 or 500 or 1,000 mg") == "Take 9999 or 500 or 1,000 mg"    # up to 9999 stays a normal number
+    assert spoken_form("Phone 9876543210.") == "Phone 9 8 7 6 5 4 3 2 1 0."
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

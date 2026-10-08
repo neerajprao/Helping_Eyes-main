@@ -147,7 +147,7 @@ flowchart TB
 | Web lookup | DuckDuckGo (`ddgs`) and the language model | Used only with the user's consent; answers are prefixed with "According to the web" |
 | Image quality | OpenCV layer (`vision.py`, part B) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
 | Book reading | OpenCV pipeline (`vision.py`, parts C and D) | Page-turn detection, spread splitting, layout analysis, reading order, resuming after the view moves |
-| Text-to-speech | Browser `speechSynthesis` | Queued, interruptible speech; the word being spoken is reported back for the on-screen highlight |
+| Text-to-speech | Gemini speech (`commands.py`, `POST /api/tts`) | Every spoken word, including "read everything" and book pages, is turned into audio by a Google Gemini voice (default `gemini-3.8-flash-lite-tts`, voice Kore; settings `TTS_MODEL`, `TTS_VOICE`). `TTS_MODEL` can list several models separated by commas (default adds `gemini-3.1-flash-tts-preview`): each model has its own free daily limit, so when one runs out (HTTP 429) the next takes over. The next few sentences are fetched while one plays, and a failed request is retried. There is no browser voice: if Google's speech service stays unavailable (no key, or the free limit is used up), the answer stays on screen and the status line says so. Queued and interruptible; the spoken word is estimated from the playing time for the on-screen highlight |
 
 ---
 
@@ -382,7 +382,7 @@ While a page is read aloud, the display follows the speech word by word: the **l
 
 <img src="docs/book_mode_highlight.jpg" width="720" alt="Book mode reading highlight: the line being spoken highlighted in yellow and the current word outlined in orange">
 
-- **Spoken position:** the browser's speech engine reports the word being spoken (the `boundary` event of `speechSynthesis`), and `app.js` converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `vision.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
+- **Spoken position:** `app.js` estimates the word being spoken from how far through the Gemini audio it is (the server gives no word times) and converts it to a character position in the page text. The server splits the page into paragraphs (`speech_chunks()` in `vision.py`), and each is spoken separately, so the start-up delay coincides with the natural pause between paragraphs. Voices that send no word events still advance the position paragraph by paragraph.
 - **On-page location:** during recognition, the OCR engine provides a bounding box for every word, and `read_page()` records which characters of the page text belong to which printed line and word (`PageLayout.lines`). The server sends this layout to the page with each new book page.
 - Combining the two yields the exact on-screen location of the word being spoken, drawn on the overlay in the browser.
 
