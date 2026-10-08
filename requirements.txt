@@ -1,4 +1,4 @@
-# Helping Eyes: the one requirements file for the whole project (laptop, tests and cloud image).
+# Helping Eyes: the one requirements file for the whole project (app and tests).
 #   pip install -r requirements.txt        (run from the top folder)
 fastapi==0.141.1
 uvicorn[standard]==0.54.0

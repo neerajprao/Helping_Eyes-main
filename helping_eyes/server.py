@@ -1,5 +1,5 @@
 """
-Helping Eyes: the application (one codebase for a laptop and for the cloud).
+Helping Eyes: the application (runs on your Mac).
 
 A FastAPI server plus a browser page. The browser handles the camera, speech
 recognition and speech output; the server does everything else:
@@ -17,7 +17,7 @@ recognition and speech output; the server does everything else:
 Run it:
     uvicorn server:app --port 7860          (then open http://localhost:7860)
 
-Settings (environment or .env), the same on a laptop and in the cloud:
+Settings (environment or .env):
     LLM_API_KEY   key for the language model API (required)
     LLM_MODEL     model name (default gemini-3.1-flash-lite)
     LLM_BASE_URL  any OpenAI-compatible chat API (default: Google Gemini's)
