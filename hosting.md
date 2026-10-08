@@ -29,7 +29,7 @@ how to build that box.
 | `requirements.txt` (top folder) | The one shopping list of Python packages. The `Dockerfile` installs everything on it. |
 | `helping_eyes/server.py` | The front desk: receives pictures and requests from visitors and sends answers back. |
 | `helping_eyes/vision.py` | The eyes: reads text from pictures, fixes bad photos, understands book pages, and gives the "move closer" hints. |
-| `helping_eyes/commands.py` | The listener: decides if what you said is a command or a question. |
+| `helping_eyes/commands.py` | The listener and the voice: decides if what you said is a command or a question, and turns each sentence into spoken audio with a Gemini voice (same key as the AI model; if it fails, the page uses the browser's own voice). |
 | `helping_eyes/assistant.py` | The answerer: asks the AI model (Gemini) and searches the web when you agree. |
 | `helping_eyes/web/` | The web page itself: `index.html` (layout), `app.js` (camera, voice and speaking), `style.css` (looks) and `favicon.svg` (the small tab icon). |
 
@@ -74,13 +74,23 @@ You set these on the host's settings page, not in the code:
 5. Choose the **Free** instance type, then under **Environment** add `LLM_API_KEY` with your key.
 6. Press deploy. The first build takes a few minutes (it downloads the OCR models). When it finishes, Render shows your web address.
 
-### Option B: Hugging Face Spaces
+### Option B: Hugging Face Spaces (needs a paid PRO plan for Docker now)
 
 1. On huggingface.co create a **New Space**, choose the **Docker** SDK and **CPU basic** hardware.
 2. Create a write token under **Settings → Access Tokens**.
 3. In the Space's **Settings → Variables and secrets** add the secret `LLM_API_KEY`.
 4. On your computer run `HF_TOKEN=hf_xxx ./helping_eyes/cloud/deploy_space.sh <your-username>`. The script assembles the clean folder and pushes it.
 5. Hugging Face builds the box. Your address is `https://<your-username>-helping-eyes.hf.space`.
+
+### Option C: your own laptop, free, no card (recommended)
+
+The laptop is the server and a free Cloudflare Quick Tunnel gives it a public `https` address. No account, no card, and your laptop's memory is more than the OCR needs.
+
+1. Install the tunnel once: `brew install cloudflared`.
+2. Run `python run.py --share`. It starts the app, opens the tunnel and prints a `https://...trycloudflare.com` address.
+3. Open that address on any device. Stop with Ctrl+C.
+
+The address works only while the laptop is awake and the program is running (on a Mac, `run.py` also runs `caffeinate` so it does not sleep when idle), and it is new every run. Anyone with the address uses your language-model key's quota.
 
 ### After it is live
 
@@ -96,7 +106,7 @@ To update the live app later, push your changes again (Render rebuilds by itself
 - **Free hosts go to sleep.** When nobody visits for a while the app sleeps, and the next visit wakes it up, which takes about a minute. Open the address a few minutes before a demo.
 - **Memory: Render's free plan is too small.** I measured the OCR here: about 375 MB once its models are loaded, and 770 MB to 980 MB while reading a full photo or a book page. Render's free plan allows 512 MB, so the app is killed the first time it reads a picture. It then restarts, and for a minute every request gets the host's HTML error page. The page shows this as "The server is not responding... out of memory" (older versions showed "Unexpected token '<'"). Check `/api/health`, the host's Logs and its Metrics. The server also logs its memory at each start-up step (`Warm-up: ... memory 375 MB`) and on every capture, so the last line before a restart shows how far it got. The start-up warm-up itself reads a sample picture and peaked near 1 GB when I measured it. Fix it by using a host or plan with at least 2 GB; shrinking the pictures did not help enough (the smallest setting I tried still peaked near 650 MB and was 2 to 3 times slower).
 - **Run only one copy.** Each visitor's captured text and conversation are kept in the server's memory, so two copies would not share them. A restart clears them.
-- **Hugging Face may need a paid plan.** One report says Docker Spaces now need one, so check your account before you start.
+- **Hugging Face needs a paid plan.** Docker Spaces on CPU basic now require PRO.
 - **The free Gemini limits.** The free AI plan has a daily limit. When it is used up, the app says the model is busy. Expiry questions, page-number questions and "read everything" never use the AI, so they keep working.
 - **Privacy.** The text of what you capture (never the picture) is sent to the AI service. On a free plan the provider may be allowed to use it, so check their terms before using it on private documents.
 - **Not tested here.** I could not build the container or try either host from this computer. I did check that the folder the deploy script assembles contains every file the recipe needs, and that the server starts from it the way `start.sh` starts it. Your first real deploy is the real test.

@@ -8,7 +8,7 @@
 <rect x="30" y="190" width="700" height="290" rx="14" fill="#eff6ff" stroke="#9ca3af"/>
 <text x="380.0" y="218" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Option A: Render (free web service)</text>
 <rect x="770" y="190" width="700" height="290" rx="14" fill="#fff7ed" stroke="#9ca3af"/>
-<text x="1120.0" y="218" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Option B: Hugging Face Spaces</text>
+<text x="1120.0" y="218" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Option B: Hugging Face Spaces (Docker needs PRO now)</text>
 <rect x="60" y="230" width="640" height="55" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
 <text x="380.0" y="262.5" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Push the repository to GitHub</text>
 <rect x="60" y="310" width="640" height="65" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>

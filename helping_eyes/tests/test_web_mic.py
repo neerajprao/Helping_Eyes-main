@@ -42,6 +42,7 @@ window.__say = (words, isFinal) => {                       // the speech engine 
   const rec = window.__recs[window.__recs.length - 1];
   const result = Object.assign([{ transcript: words }], { isFinal });
   rec.onresult({ results: [result] });
+  if (isFinal) rec.finish();                               // a real engine ends after a finished sentence
 };
 window.__fail = (error) => { const rec = window.__recs[window.__recs.length - 1]; rec.onerror({ error }); rec.finish(); };
 """

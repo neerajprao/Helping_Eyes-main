@@ -48,7 +48,7 @@ box(250, 75, 1000, 70, ["START: your computer", "the code, plus a free Gemini AP
 
 # 2. two ways to send the code to a host
 panel(30, 190, 700, 290, "Option A: Render (free web service)", "#eff6ff")
-panel(770, 190, 700, 290, "Option B: Hugging Face Spaces", "#fff7ed")
+panel(770, 190, 700, 290, "Option B: Hugging Face Spaces (Docker needs PRO now)", "#fff7ed")
 box(60, 230, 640, 55, ["Push the repository to GitHub"], "#fff", BLUE)
 box(60, 310, 640, 65, ["On Render: New Web Service, Docker runtime", "Dockerfile Path: helping_eyes/cloud/Dockerfile (Root Directory stays empty)"], "#fff", BLUE)
 box(60, 400, 640, 60, ["Add the secret LLM_API_KEY", "in Render's Environment settings"], "#fff", BLUE)

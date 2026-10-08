@@ -5,6 +5,7 @@ Run Helping Eyes on this computer, the same app that runs on the host:
     python run.py --no-browser       start it and print the address only
     python run.py --port 8000        use another port (default 7860; the next free one if it is taken)
     python run.py --host 0.0.0.0     also reachable from other devices on your network
+    python run.py --share            also give it a public https address (free Cloudflare tunnel, no account)
 
 It checks your setup, starts the server (helping_eyes/server.py), waits until it is ready and opens
 the page. Chrome does the camera, the microphone, speech to text and text to speech, exactly as it
@@ -21,6 +22,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -114,6 +116,45 @@ def open_browser(url: str) -> str:
     return "your default browser (Chrome or Edge is recommended: speech recognition needs one of them)"
 
 
+# ---------------------------------------------------------------- share
+TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+
+
+def tunnel_url(line: str):
+    """The public address in one line of cloudflared's output, or None."""
+    match = TUNNEL_URL.search(line)
+    return match.group(0) if match else None
+
+
+def start_share(port: int):
+    """Open a free Cloudflare Quick Tunnel to this server and keep the computer awake while it runs.
+    Returns the processes to stop at the end, or None when cloudflared is not installed."""
+    if not shutil.which("cloudflared"):
+        print("  share     cloudflared is not installed, so there is no public address. Install it with:")
+        print("            brew install cloudflared      (other systems: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)")
+        return None
+    tunnel = subprocess.Popen(["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    procs = [tunnel]
+    if sys.platform == "darwin" and shutil.which("caffeinate"):     # no idle sleep while this program runs
+        procs.append(subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())]))
+
+    def watch():
+        announced = False
+        for line in tunnel.stderr:
+            url = tunnel_url(line)
+            if url and not announced:
+                announced = True
+                print(f"\nPublic address (works while this computer is awake and this program runs):\n  {url}\n")
+    threading.Thread(target=watch, daemon=True).start()
+    return procs
+
+
+def stop_share(procs) -> None:
+    for proc in procs or []:
+        proc.terminate()
+
+
 # ---------------------------------------------------------------- start
 def health(port: int):
     try:
@@ -150,6 +191,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", DEFAULT_PORT)), help="port to use (default 7860)")
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this computer only)")
     parser.add_argument("--no-browser", action="store_true", help="do not open the page")
+    parser.add_argument("--share", action="store_true", help="also give it a public https address (free Cloudflare tunnel)")
     args = parser.parse_args()
 
     check_python()
@@ -176,11 +218,14 @@ def main() -> None:
 
     threading.Thread(target=announce_when_ready, args=(port, not args.no_browser, url), daemon=True).start()
 
+    shared = start_share(port) if args.share else None
     import uvicorn
     try:
         uvicorn.run("server:app", app_dir=APP_DIR, host=args.host, port=port, log_level="info")
     except KeyboardInterrupt:
         pass
+    finally:
+        stop_share(shared)
     print("\nStopped.")
 
 

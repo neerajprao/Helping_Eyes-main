@@ -92,6 +92,22 @@ def test_open_browser_falls_back_to_the_default_browser():
     assert opened == ["http://localhost:1"]
 
 
+def test_tunnel_url_is_found_in_cloudflared_output():
+    line = "2026-10-08T10:00:00Z INF |  https://quiet-blue-fox-12.trycloudflare.com  |"
+    assert run.tunnel_url(line) == "https://quiet-blue-fox-12.trycloudflare.com"
+    assert run.tunnel_url("INF Requesting new quick Tunnel on trycloudflare.com...") is None
+
+
+def test_share_without_cloudflared_says_how_to_install_it(capsys=None):
+    original = run.shutil.which
+    run.shutil.which = lambda name: None
+    try:
+        assert run.start_share(7860) is None
+    finally:
+        run.shutil.which = original
+    run.stop_share(None)                                      # nothing to stop is fine
+
+
 # ---------------------------------------------------------------- the real thing
 def start(*args):
     env = {**os.environ, "LLM_API_KEY": ""}                   # no key, whatever is in the developer's own .env

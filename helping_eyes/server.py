@@ -10,6 +10,7 @@ recognition and speech output; the server does everything else:
     POST /api/book/page   full-size photo of a book view -> what to read, from where
     POST /api/ask         a spoken or typed request -> commands, answers, web lookup,
                           streamed as NDJSON (the routing lives in commands.py)
+    POST /api/tts         one sentence -> spoken audio (commands.py, Gemini voice; the page falls back to the browser voice)
     GET  /api/health      health check
     GET  /                the page (web/index.html)
 
@@ -41,10 +42,11 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import commands
 from commands import classify
 from assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
 from vision import BookReader, BookWatcher, LiveGuide, find_text_region, read_page, read_text_enhanced
@@ -223,7 +225,35 @@ def health() -> dict:
     # No request to the language model here: free API plans count every call
     return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY),
             "ocr": _warmup["state"], "memory_mb": _memory_mb(), "memory_limit_mb": _memory_limit_mb(),
-            "cpus": os.cpu_count()}
+            "cpus": os.cpu_count(), "tts": commands.TTS_ENABLED}
+
+
+class Speak(BaseModel):
+    text: str = ""
+
+
+_tts_hits: Dict[str, deque] = defaultdict(deque)
+TTS_RATE_LIMIT = 40            # speech requests per minute per client (one per sentence)
+
+
+@app.post("/api/tts")
+def speak(q: Speak, request: Request) -> Response:
+    """Turn one sentence into WAV audio with the Gemini voice."""
+    if not commands.TTS_ENABLED:
+        raise HTTPException(503, "Gemini speech is switched off.")
+    client, now = _client(request), time.time()
+    hits = _tts_hits[client]
+    while hits and now - hits[0] > 60:
+        hits.popleft()
+    if len(hits) >= TTS_RATE_LIMIT:
+        raise HTTPException(429, "Too many speech requests. Please wait a moment.")
+    hits.append(now)
+    try:
+        audio = commands.synthesize(q.text)
+    except commands.TtsError as e:
+        logger.error(f"TTS failed: {e}")
+        raise HTTPException(502, "Speech service failed.")
+    return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/capture")
@@ -259,7 +289,7 @@ async def capture(request: Request, image: UploadFile = File(...), sid: str = Fo
     return {"ok": True, "text": text, "seconds": seconds, "method": method,
             "label": layout.label() if layout else "",
             "running_title": (layout.running_title() or "") if layout else "",
-            "message": "Got it. What would you like to know? You can also say, read everything."}
+            "message": "Got it. What would you like to know?"}
 
 
 @app.post("/api/book/page")
@@ -353,10 +383,21 @@ def ask(q: Question, request: Request) -> StreamingResponse:
         elif cmd.name in ("search_for", "search_last"):
             question = cmd.query or session.last_question
             session.doc.cancel()
-            if question:
-                yield from web(question)
-            else:
+            if not question:
                 yield _event("sentence", text="What should I look up?")
+            else:
+                # The captured text comes first: go online only when it cannot answer
+                from_text = []
+                if session.doc.has_document() and web_lookup_allowed(question):
+                    from_text = [s for s in session.doc.ask(question) if s != READ_ALL]
+                    if session.doc.last_not_in_text:
+                        from_text = []
+                if from_text:
+                    session.last_answer = " ".join(from_text)
+                    for s in from_text:
+                        yield _event("sentence", text=s)
+                else:
+                    yield from web(question)
         elif not session.doc.has_document():
             yield _event("sentence", text="I haven't captured any text yet. Hold something up to the camera.")
         else:

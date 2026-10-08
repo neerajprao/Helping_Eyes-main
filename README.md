@@ -50,7 +50,7 @@ Core capabilities:
   - *"When does it expire?"* or *"Is this safe for children?"* is answered from the text.
 - **Hands-free listening:** the microphone listens only while the application is quiet, so it never answers itself.
 - **Language model:** answers come from a hosted chat model (Gemini Flash-Lite by default; any OpenAI-compatible API works) and are spoken sentence by sentence as they are generated.
-- **Optional web lookup:** when the text does not contain the answer, the application offers to search online and does so only with the user's consent.
+- **Optional web lookup:** when the text does not contain the answer, the application offers to search online and does so only with the user's consent. The captured text is always checked first, and web answers give only what was asked.
 - **Book reading mode:** a custom computer vision pipeline detects page turns, separates two-page spreads, recognises printed page numbers and running titles on any page, orders columns and paragraphs, and highlights the exact word being read on screen.
 
 Text recognition (RapidOCR) and layout analysis run on the server, which can be your own laptop. Only the captured text (never the picture) is sent to the language model, and only the search words are sent for a web lookup. Speech recognition uses the browser's speech service.
@@ -254,7 +254,7 @@ On first use the browser asks for **camera** and **microphone** access; allow bo
 python run.py                  # checks your setup, starts the app and opens it in Chrome
 ```
 
-`run.py` does everything the host does, on this computer: it checks the Python version and the installed packages, tells you if the language-model key is missing, starts the same server, waits until the text reader has loaded and opens the page. Chrome (or Edge) does the camera, the microphone, speech to text and text to speech, exactly as for a visitor on the host. Options: `--no-browser` (print the address only), `--port 8000` (default 7860; the next free port is used if it is taken) and `--host 0.0.0.0` (also reachable from other devices on your network). Stop it with Ctrl+C. To start the server without `run.py`: `cd helping_eyes && uvicorn server:app --port 7860`.
+`run.py` does everything the host does, on this computer: it checks the Python version and the installed packages, tells you if the language-model key is missing, starts the same server, waits until the text reader has loaded and opens the page. Chrome (or Edge) does the camera, the microphone, speech to text and text to speech, exactly as for a visitor on the host. Options: `--no-browser` (print the address only), `--port 8000` (default 7860; the next free port is used if it is taken) and `--host 0.0.0.0` (also reachable from other devices on your network) and `--share` (see below). Stop it with Ctrl+C. To start the server without `run.py`: `cd helping_eyes && uvicorn server:app --port 7860`.
 
 1. Allow the camera. Hold the item in front of it and follow the spoken guidance; it is captured automatically once it is steady and in view.
 2. After *"Got it"*, ask aloud (press **Listen** once for hands-free listening; the words appear as "Hearing: ..." while you speak) or type the question and press Enter.
@@ -263,12 +263,21 @@ python run.py                  # checks your setup, starts the app and opens it 
 
 The camera works on `http://localhost` and on any `https://` address, but not on a plain `http://` address on the network.
 
+#### Share from your laptop (free, no account, no card)
+
+```bash
+brew install cloudflared       # once
+python run.py --share          # prints a public https address
+```
+
+`--share` opens a free Cloudflare Quick Tunnel to the server on your laptop, so a phone or a friend can open the app over `https` (the camera and microphone need it). On a Mac it also runs `caffeinate` so the laptop does not fall asleep from being idle. The address works only while the laptop is awake and `run.py` is running, and it changes every time. The laptop's own memory covers the roughly 1 GB the OCR needs. Closing the lid on battery still sleeps the Mac. Anyone with the address uses your language-model key's quota, so share it with people you trust.
+
 ### In the cloud
 
-The app is a single container that needs no model server or GPU: `helping_eyes/cloud/Dockerfile` builds it, and the only secret it needs is `LLM_API_KEY`. It reads the port from `$PORT` (default 7860), so it runs on any host that runs Docker. Two free options:
+The app is a single container that needs no model server or GPU: `helping_eyes/cloud/Dockerfile` builds it, and the only secret it needs is `LLM_API_KEY`. It reads the port from `$PORT` (default 7860), so it runs on any host that runs Docker. Free options (neither has enough memory or a free Docker plan to rely on, so for a real demo use `--share` above):
 
 - **Render (free web service):** WebSockets are supported, which the live camera feed needs. Create a Web Service from this repository, choose the Docker runtime, leave *Root Directory* empty (the repository's top folder, where `requirements.txt` is) and set *Dockerfile Path* to `helping_eyes/cloud/Dockerfile`, and add `LLM_API_KEY` under *Environment*. A free service sleeps after about 15 minutes idle and has 512 MB of memory, which may be tight for OCR, so check memory use before relying on it.
-- **Hugging Face Spaces (Docker):** create the Space, add `LLM_API_KEY` under *Settings → Variables and secrets*, then run `HF_TOKEN=hf_xxx ./helping_eyes/cloud/deploy_space.sh <your-username>`. Reports say Docker Spaces may now require a paid plan, so check your account first.
+- **Hugging Face Spaces (Docker):** create the Space, add `LLM_API_KEY` under *Settings → Variables and secrets*, then run `HF_TOKEN=hf_xxx ./helping_eyes/cloud/deploy_space.sh <your-username>`. Docker Spaces now require a paid (PRO) plan.
 
 A plain-language walkthrough of every hosting file, with a flowchart, is in [hosting.md](hosting.md). Neither host has been tested with this version yet. After deploying, open `/api/health`: `llm_configured` must be `true`. A free service sleeps when unused, so open the URL a few minutes before a demo.
 
@@ -483,7 +492,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | "The language model is busy" | The free-tier limit was reached. Wait a minute, or switch model or provider with `LLM_MODEL` and `LLM_BASE_URL`. |
 | "I can't reach the language model" | Check the internet connection and `LLM_BASE_URL`. |
 | "Sorry, I couldn't search online right now" | Check the internet connection. DuckDuckGo may rate-limit requests; wait a minute and try again. |
-| The web lookup is never offered | The offer appears only when the answer is not in the text, and never for expiry, batch or price. Say "look it up" to search directly. |
+| The web lookup is never offered | The offer appears only when the answer is not in the text, and never for expiry, batch or price. Say "look it up" to search directly; the captured text is still checked first, and the web is used only if it cannot answer. |
 | The first answer is slow | Free model tiers can be slow at busy times. Try again, or choose another model with `LLM_MODEL`. |
 | "The server is not responding... out of memory" (or "Unexpected token '<'" in an older version) | The host returned its own error page instead of an answer: the app is starting up, or it ran out of memory and was restarted. The OCR needs roughly 400 MB to 1 GB while it reads, so Render's free 512 MB plan is too small; use a host with at least 2 GB. Check the host's logs and memory graph. |
 | The camera does not start | Allow camera access in the browser (the padlock in the address bar). Another application (FaceTime, Zoom) may be using it. Use `http://localhost` or HTTPS, or the Upload photo fallback. |

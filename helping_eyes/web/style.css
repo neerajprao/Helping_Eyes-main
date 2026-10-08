@@ -105,3 +105,14 @@ pre { white-space: pre-wrap; font: inherit; font-size: 0.95rem; max-height: 260p
   position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0;
   overflow: hidden; clip: rect(0 0 0 0); border: 0;
 }
+
+.you-said { margin: 0 0 .75rem; padding: .6rem .8rem; border-left: 4px solid var(--primary); background: var(--bg); color: var(--text); border-radius: 6px; font-weight: 600; overflow-wrap: anywhere; }
+
+/* Wide screens: the camera stays in view on the left; ask and answer sit beside it on the right */
+@media (min-width: 1000px) {
+  header, main, footer { max-width: 1400px; }
+  main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); column-gap: 20px; align-items: start; }
+  main > section:nth-child(1) { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: 0; }
+  main > section:nth-child(2) { grid-column: 2; grid-row: 1; }
+  main > section:nth-child(3) { grid-column: 2; grid-row: 2; }
+}

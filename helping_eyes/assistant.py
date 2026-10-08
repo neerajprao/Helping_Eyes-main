@@ -91,9 +91,12 @@ answer their question, so the app searched the web. Answer using only the web re
 
 Rules:
 - Your reply is spoken aloud. Plain sentences only, no markdown, no lists, no URLs.
+- Say only what the question asks for: the specific fact, value or part they asked about.
+  No background, no history, no related facts, no extra tips, and no summary of the results.
+  If they ask for one thing (a price, a date, a dosage, an ingredient), give just that.
 - Start with "According to the web," so the user knows this is not from their item.
-- Answer in two to four sentences. If the results don't answer the question, say so.
-- For medicine, dosage or health questions, end with: "Please confirm with a pharmacist or doctor."
+- Keep it to one or two short sentences. If the results don't answer the question, say so in one sentence.
+- For medicine, dosage or health questions only, end with: "Please confirm with a pharmacist or doctor."
 - Never present web information as if it were printed on the user's item.
 
 Question: {question}

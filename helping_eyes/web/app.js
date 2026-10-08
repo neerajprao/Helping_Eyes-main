@@ -24,22 +24,68 @@ function escapeHtml(s) {
 }
 
 // ================================================================ speech out
+// The voice is Gemini's (server /api/tts). If that fails or is switched off, the browser's own voice is used.
 const synth = window.speechSynthesis || null;
-const speechQueue = [];       // {text, el, start}: waiting to be spoken
+const speechQueue = [];       // {text, el, start, audio}: waiting to be spoken
 let speakingNow = null;
 let speechPos = null;         // book mode: character of the page being spoken right now
 let lastSpeechActivity = 0;   // performance.now() when speech last started or ended (echo guard)
+let cloudVoice = true;        // false after a failure, until cloudVoiceRetry
+let cloudVoiceRetry = 0;
+let player = null;            // the <audio> element that is playing now
+const PREFETCH = 3;           // sentences fetched ahead, so the voice does not pause between them
+
+// Does the server have a Gemini voice? Known before the first sentence is fetched
+const voiceKnown = fetch("/api/health").then((r) => r.json()).then((h) => { if (h.tts === false) cloudVoice = false; }).catch(() => {});
 
 const isSpeaking = () => !!speakingNow || speechQueue.length > 0;
+const cloudVoiceUsable = () => cloudVoice || performance.now() > cloudVoiceRetry;
+
+// Ask the server for the audio of one sentence; resolves to an object URL, or null when it cannot
+function fetchAudio(item) {
+  if (item.audio) return item.audio;
+  item.audio = (async () => {
+    await voiceKnown;
+    if (!cloudVoiceUsable()) return null;
+    try {
+      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ text: item.text }) });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      cloudVoice = true;
+      return URL.createObjectURL(await res.blob());
+    } catch (err) {
+      cloudVoice = false;
+      cloudVoiceRetry = performance.now() + 60000;       // use the browser voice for a minute, then try again
+      return null;
+    }
+  })();
+  return item.audio;
+}
+
+function prefetch() {
+  if (!cloudVoiceUsable()) return;
+  speechQueue.slice(0, PREFETCH).forEach(fetchAudio);
+}
 
 // start: for a piece of a book page, its offset in the page text (enables the reading position)
 function say(text, { el = null, start = null } = {}) {
-  if (!synth || !text || !text.trim()) return;
+  if (!text || !text.trim()) return;
   if (start !== null) start += text.length - text.trimStart().length;
-  speechQueue.push({ text: text.trim(), el, start });
+  speechQueue.push({ text: text.trim(), el, start, audio: null });
   lastSpeechActivity = performance.now();
   if (recognizer) recognizer.abort();      // the microphone must not hear the app
+  prefetch();
   if (!speakingNow) speakNext();
+}
+
+// Mark the word at charIndex in the sentence being spoken, and move the book reading position
+function markWord(item, charIndex) {
+  if (item.start !== null) speechPos = item.start + charIndex;
+  if (!item.el) return;
+  const t = item.text;
+  const end = t.slice(charIndex).search(/\s|$/) + charIndex;
+  item.el.innerHTML = escapeHtml(t.slice(0, charIndex)) + "<mark>" + escapeHtml(t.slice(charIndex, end)) +
+    "</mark>" + escapeHtml(t.slice(end));
 }
 
 function speakNext() {
@@ -51,29 +97,50 @@ function speakNext() {
     return;
   }
   speakingNow = item;
+  prefetch();
+  const finished = () => {
+    if (speakingNow !== item) return;      // a stale event from a cancelled utterance
+    if (item.el) item.el.textContent = item.text;
+    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
+    if (item.url) URL.revokeObjectURL(item.url);
+    player = null;
+    speakNext();
+  };
+  fetchAudio(item).then((url) => {
+    if (speakingNow !== item) { if (url) URL.revokeObjectURL(url); return; }      // stopped while waiting
+    if (url) playAudio(item, url, finished);
+    else speakWithBrowser(item, finished);
+  });
+}
+
+function playAudio(item, url, finished) {
+  item.url = url;
+  const audio = new Audio(url);
+  player = audio;
+  let lastIndex = -1;
+  audio.onplay = () => { if (item.start !== null) speechPos = item.start; };
+  audio.ontimeupdate = () => {
+    if (!audio.duration) return;
+    // The server gives no word times: estimate the word from how far through the audio we are
+    let index = Math.min(item.text.length - 1, Math.floor((audio.currentTime / audio.duration) * item.text.length));
+    while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
+    if (index !== lastIndex) { lastIndex = index; markWord(item, index); }
+  };
+  audio.onended = audio.onerror = finished;
+  audio.play().catch(() => { item.url = null; URL.revokeObjectURL(url); player = null; speakWithBrowser(item, finished); });
+}
+
+function speakWithBrowser(item, finished) {
+  if (!synth) return finished();
   const u = new SpeechSynthesisUtterance(item.text);
   u.lang = "en-US";
   u.rate = 1.0;
   u.onstart = () => { if (item.start !== null) speechPos = item.start; };
-  u.onboundary = (e) => {
-    if (e.name !== "word") return;
-    if (item.start !== null) speechPos = item.start + e.charIndex;
-    if (!item.el) return;
-    const t = item.text;
-    const end = t.slice(e.charIndex).search(/\s|$/) + e.charIndex;
-    item.el.innerHTML = escapeHtml(t.slice(0, e.charIndex)) + "<mark>" + escapeHtml(t.slice(e.charIndex, end)) +
-      "</mark>" + escapeHtml(t.slice(end));
-  };
+  u.onboundary = (e) => { if (e.name === "word") markWord(item, e.charIndex); };
   // Some browsers never report the end of an utterance: don't let that freeze the app
-  const watchdog = setTimeout(() => finished(), 4000 + item.text.length * 120);
-  const finished = () => {
-    clearTimeout(watchdog);
-    if (speakingNow !== item) return;      // a stale event from a cancelled utterance
-    if (item.el) item.el.textContent = item.text;
-    if (item.start !== null) speechPos = item.start + item.text.length;   // voices without word events
-    speakNext();
-  };
-  u.onend = u.onerror = finished;
+  const watchdog = setTimeout(() => done(), 4000 + item.text.length * 120);
+  const done = () => { clearTimeout(watchdog); finished(); };
+  u.onend = u.onerror = done;
   synth.speak(u);
 }
 
@@ -83,6 +150,7 @@ function silence() {
   speakingNow = null;
   speechPos = null;
   lastSpeechActivity = performance.now();
+  if (player) { player.onended = player.onerror = null; player.pause(); player = null; }
   if (synth) synth.cancel();
   answerEl.querySelectorAll("p").forEach((p) => { if (p.querySelector("mark")) p.textContent = p.textContent; });
 }
@@ -379,11 +447,19 @@ async function handleBookEvent(event) {
 }
 
 // ================================================================ ask (every request goes to the server)
+// Show the request (spoken or typed) above the answer, so the user can see what was understood
+function showYouSaid(text) {
+  const el = $("you-said");
+  el.textContent = "You said: " + text;
+  el.hidden = false;
+}
+
 async function ask(text) {
   text = (text || "").trim();
   if (!text) return;
   stopSpeaking();
   $("offer").hidden = true;
+  showYouSaid(text);
   answerEl.innerHTML = "";
   lastSentences = [];
   setStatus("One moment…");
@@ -527,7 +603,7 @@ function listenTick() {
     if (lastSpeechActivity > startedAt) return;           // the app started talking: that was its own voice
     const result = e.results[e.results.length - 1];
     const text = result[0].transcript;
-    if (!result.isFinal) return setStatus("Hearing: " + text + "…");
+    if (!result.isFinal) { showYouSaid(text + "…"); return setStatus("Hearing: " + text + "…"); }
     micFailures = 0;
     setStatus("Heard: " + text);
     ask(text);
