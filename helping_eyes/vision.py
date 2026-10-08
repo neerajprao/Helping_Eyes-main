@@ -60,12 +60,21 @@ class TextLine:
     box: Box
     # (start, end, box) of each word in `text`; filled when word_boxes=True
     words: List[Tuple[int, int, Box]] = field(default_factory=list)
+    # The four corners (top left, top right, bottom right, bottom left) of the line as it really lies, slanted
+    # when the text is: `box` is only the axis-aligned bounds of these. word_quads is parallel to `words`.
+    quad: Optional[List[Tuple[float, float]]] = None
+    word_quads: List[List[Tuple[float, float]]] = field(default_factory=list)
 
 
 def _vision_box(rect, w: int, h: int) -> Box:
     """A Vision bounding box (fractions of the image, origin at the bottom left) as a pixel box."""
     x, y, bw, bh = rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
     return (max(0, int(x * w)), max(0, int((1 - y - bh) * h)), min(w, int((x + bw) * w)), min(h, int((1 - y) * h)))
+
+
+def _vision_quad(obs, w: int, h: int) -> List[Tuple[float, float]]:
+    """The corners of a Vision rectangle observation (a line or a word) as pixel points, top left first."""
+    return [(p.x * w, (1 - p.y) * h) for p in (obs.topLeft(), obs.topRight(), obs.bottomRight(), obs.bottomLeft())]
 
 
 def recognize_text(image: np.ndarray, word_boxes: bool = False, fast: bool = False) -> List[TextLine]:
@@ -99,7 +108,8 @@ def recognize_text(image: np.ndarray, word_boxes: bool = False, fast: bool = Fal
             continue
         candidate = candidates[0]
         text = str(candidate.string())
-        line = TextLine(text, float(candidate.confidence()), _vision_box(observation.boundingBox(), w, h))
+        line = TextLine(text, float(candidate.confidence()), _vision_box(observation.boundingBox(), w, h),
+                        quad=_vision_quad(observation, w, h))
         if word_boxes:
             for m in re.finditer(r"\S+", text):
                 # Vision counts characters in UTF-16 units
@@ -108,6 +118,7 @@ def recognize_text(image: np.ndarray, word_boxes: bool = False, fast: bool = Fal
                 box, _ = candidate.boundingBoxForRange_error_(Foundation.NSMakeRange(start, length), None)
                 if box is not None:
                     line.words.append((m.start(), m.end(), _vision_box(box.boundingBox(), w, h)))
+                    line.word_quads.append(_vision_quad(box, w, h))
         lines.append(line)
     lines.sort(key=lambda l: (l.box[1], l.box[0]))
     return lines
@@ -494,6 +505,74 @@ def unwarp_box(box: Box, model: Optional[DewarpModel]) -> Box:
     x1, y1, x2, y2 = box
     s1, s2 = float(model.shift(x1)), float(model.shift(x2))
     return (x1, int(round(y1 + min(s1, s2))), x2, int(round(y2 + max(s1, s2))))
+
+
+# =====================================================================
+# 3b. Slanted pages: measure the slant, straighten for the layout analysis, map everything back
+# =====================================================================
+SKEW_MIN = 1.5      # degrees: a page slanted less than this is read as it is
+SKEW_MAX = 25.0
+
+
+def estimate_skew(image: np.ndarray, max_angle: float = SKEW_MAX) -> float:
+    """
+    How many degrees to rotate the image (OpenCV's sign: positive turns it counter-clockwise) so that its lines of
+    text run level; 0.0 when there is no clear slant. The right angle is the one at which the rows of ink are the
+    sharpest (a level line is all ink on a few rows).
+    """
+    gray = _analysis_gray(image)
+    scale = 500 / max(gray.shape)
+    if scale < 1:
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    ink = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 25, 12)
+    if ink.mean() < 2:                       # next to no ink: nothing to measure
+        return 0.0
+    h, w = ink.shape
+    center = (w / 2, h / 2)
+    # only the middle of the picture counts, so the corners that rotation leaves empty do not matter
+    mask = np.zeros_like(ink)
+    cv2.circle(mask, (int(center[0]), int(center[1])), int(min(h, w) / 2), 255, -1)
+
+    def sharpness(angle: float) -> float:
+        turned = cv2.warpAffine(ink, cv2.getRotationMatrix2D(center, angle, 1.0), (w, h))
+        turned = cv2.bitwise_and(turned, mask)
+        rows = turned.sum(axis=1).astype(np.float64)
+        return float(np.sum(np.diff(rows) ** 2))
+
+    coarse = np.arange(-max_angle, max_angle + 0.01, 1.0)
+    best = max(coarse, key=sharpness)
+    fine = np.arange(best - 1.0, best + 1.01, 0.1)
+    best = max(fine, key=sharpness)
+    return float(best) if abs(best) >= SKEW_MIN and sharpness(best) > 1.15 * sharpness(0.0) else 0.0
+
+
+def rotate_expand(image: np.ndarray, angle: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Rotate by `angle` degrees on a canvas big enough to keep everything. Returns (image, 2x3 matrix original -> rotated)."""
+    h, w = image.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+    cos, sin = abs(matrix[0, 0]), abs(matrix[0, 1])
+    new_w, new_h = int(h * sin + w * cos), int(h * cos + w * sin)
+    matrix[0, 2] += new_w / 2 - w / 2
+    matrix[1, 2] += new_h / 2 - h / 2
+    return cv2.warpAffine(image, matrix, (new_w, new_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE), matrix
+
+
+Quad = List[Tuple[float, float]]
+
+
+def box_quad(box: Box) -> Quad:
+    x1, y1, x2, y2 = box
+    return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
+
+def quad_bounds(quad: Quad) -> Box:
+    xs, ys = [p[0] for p in quad], [p[1] for p in quad]
+    return (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
+
+
+def map_quad(quad: Quad, point) -> Quad:
+    """The quad with every corner passed through point(x, y) -> (x, y)."""
+    return [point(x, y) for x, y in quad]
 
 
 # =====================================================================
@@ -1031,6 +1110,8 @@ class LineSpan:
     end: int
     box: Box        # full-frame pixel coordinates
     words: List[Tuple[int, int, Box]] = field(default_factory=list)  # same, per word
+    quad: Optional[Quad] = None                                       # the line's real (slanted) outline
+    word_quads: List[Quad] = field(default_factory=list)              # same, per word
 
 
 @dataclass
@@ -1040,6 +1121,9 @@ class PageLayout:
     columns: List[Box] = field(default_factory=list)
     blocks: List[Box] = field(default_factory=list)   # paragraphs, in reading order
     margins: List[Box] = field(default_factory=list)  # headers / footers (not read aloud)
+    column_quads: List[Quad] = field(default_factory=list)   # the same three, as outlines that follow a slanted page
+    block_quads: List[Quad] = field(default_factory=list)
+    margin_quads: List[Quad] = field(default_factory=list)
     lines: List[LineSpan] = field(default_factory=list)
     paragraphs: List[Tuple[int, int]] = field(default_factory=list)  # (start, end) in the page text
     pages: List[PageInfo] = field(default_factory=list)              # left to right
@@ -1081,19 +1165,40 @@ class PageLayout:
         return " ".join(parts)
 
 
+def _remap(line: TextLine, point, box_of) -> TextLine:
+    """The same line with every outline moved through point(x, y) -> (x, y); boxes are recomputed by box_of(quad)."""
+    quad = map_quad(line.quad or box_quad(line.box), point)
+    word_quads = [map_quad(q, point) for q in line.word_quads] if line.word_quads else \
+        [map_quad(box_quad(b), point) for _, _, b in line.words]
+    words = [(a, b, box_of(q)) for (a, b, _), q in zip(line.words, word_quads)]
+    return TextLine(line.text, line.confidence, box_of(quad), words, quad, word_quads)
+
+
 def _shift(line: TextLine, dx: int) -> TextLine:
     """The same line with its boxes moved dx pixels to the right."""
-    x1, y1, x2, y2 = line.box
-    words = [(a, b, (bx1 + dx, by1, bx2 + dx, by2)) for a, b, (bx1, by1, bx2, by2) in line.words]
-    return TextLine(line.text, line.confidence, (x1 + dx, y1, x2 + dx, y2), words)
+    return _remap(line, lambda x, y: (x + dx, y), quad_bounds)
 
 
 def _unwarp(line: TextLine, model) -> TextLine:
     """Boxes found on a dewarped page image, mapped back onto the camera frame."""
     if model is None:
         return line
-    return TextLine(line.text, line.confidence, unwarp_box(line.box, model),
-                    [(a, b, unwarp_box(box, model)) for a, b, box in line.words])
+    # a word or line is as tall as the vertical shifts under it; boxes keep unwarp_box's rule, outlines move point by point
+    out = _remap(line, lambda x, y: (x, y + float(model.shift(x))), quad_bounds)
+    out.box = unwarp_box(line.box, model)
+    out.words = [(a, b, unwarp_box(box, model)) for a, b, box in line.words]
+    return out
+
+
+def _page_back(matrix: Optional[np.ndarray], dx: int):
+    """point(x, y) taking a position on a straightened page crop back to the full frame (matrix: crop -> straightened)."""
+    inverse = cv2.invertAffineTransform(matrix) if matrix is not None else None
+
+    def point(x: float, y: float) -> Tuple[float, float]:
+        if inverse is not None:
+            x, y = (inverse[0, 0] * x + inverse[0, 1] * y + inverse[0, 2], inverse[1, 0] * x + inverse[1, 1] * y + inverse[1, 2])
+        return x + dx, y
+    return point
 
 
 def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str, PageLayout]:
@@ -1105,18 +1210,33 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
     report = assess_quality(frame) if enhance else None
     text = ""
     for x_start, x_end in pages:
-        image, model = prepare_page(frame[:, x_start:x_end], report) if enhance else (frame[:, x_start:x_end], None)
-        lines = [_shift(_unwarp(l, model), x_start) for l in recognize_text(image, word_boxes=True)
-                 if l.text.strip()]
-        body, margin_lines, info = split_page_parts(lines)
+        crop = frame[:, x_start:x_end]
+        # A slanted page is straightened for the layout analysis (rows, columns, paragraphs); everything found is
+        # then mapped back, so the outlines drawn on the screen follow the slant.
+        angle = estimate_skew(crop) if enhance else 0.0
+        turned, matrix = rotate_expand(crop, angle) if angle else (crop, None)
+        image, model = prepare_page(turned, report) if enhance else (turned, None)
+        back = _page_back(matrix, x_start)
+        found = [_unwarp(l, model) for l in recognize_text(image, word_boxes=True) if l.text.strip()]
+        body, margin_lines, info = split_page_parts(found)
         layout.pages.append(info)
-        layout.margins += [l.box for l in margin_lines]
+        lines = lambda group: [_remap(l, back, quad_bounds) for l in group]
 
-        for paragraph in xy_cut(body, layout.columns):
-            layout.blocks.append((min(l.box[0] for l in paragraph), min(l.box[1] for l in paragraph),
-                                  max(l.box[2] for l in paragraph), max(l.box[3] for l in paragraph)))
+        for b in [l.box for l in margin_lines]:
+            q = map_quad(box_quad(b), back)
+            layout.margins.append(quad_bounds(q)); layout.margin_quads.append(q)
+
+        columns = []
+        paragraphs = xy_cut(body, columns)
+        for b in columns:
+            q = map_quad(box_quad(b), back)
+            layout.columns.append(quad_bounds(q)); layout.column_quads.append(q)
+        for paragraph in paragraphs:
+            q = map_quad(box_quad((min(l.box[0] for l in paragraph), min(l.box[1] for l in paragraph),
+                                   max(l.box[2] for l in paragraph), max(l.box[3] for l in paragraph))), back)
+            layout.blocks.append(quad_bounds(q)); layout.block_quads.append(q)
             para_start = None
-            for line in paragraph:
+            for line in lines(paragraph):
                 t = line.text.strip()
                 if para_start is None:
                     if text:
@@ -1130,7 +1250,7 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
                 text += t
                 lead = len(line.text) - len(line.text.lstrip())   # strip() shifted the offsets
                 words = [(start + a - lead, start + b - lead, box) for a, b, box in line.words]
-                layout.lines.append(LineSpan(start, len(text), line.box, words))
+                layout.lines.append(LineSpan(start, len(text), line.box, words, line.quad, line.word_quads))
             layout.paragraphs.append((para_start, len(text)))
 
     return text, layout
@@ -1138,15 +1258,27 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
 
 def _unproject_layout(layout: PageLayout, matrix: np.ndarray, flat_height: int) -> None:
     """Map a layout found on the flattened page back onto the camera frame (in place)."""
-    back = lambda box: unproject_box(box, matrix)
+    inverse = np.linalg.inv(matrix)
+
+    def point(x: float, y: float) -> Tuple[float, float]:
+        out = cv2.perspectiveTransform(np.array([[[x, y]]], np.float32), inverse)[0, 0]
+        return float(out[0]), float(out[1])
+
+    def both(boxes, quads):
+        q = [map_quad(qd, point) for qd in (quads or [box_quad(b) for b in boxes])]
+        return [quad_bounds(x) for x in q], q
+
     if layout.gutter_x:
-        point = cv2.perspectiveTransform(np.array([[[layout.gutter_x, flat_height / 2]]], np.float32), np.linalg.inv(matrix))
-        layout.gutter_x = int(point[0, 0, 0])
-    layout.columns = [back(b) for b in layout.columns]
-    layout.blocks = [back(b) for b in layout.blocks]
-    layout.margins = [back(b) for b in layout.margins]
-    layout.lines = [LineSpan(l.start, l.end, back(l.box), [(a, b, back(box)) for a, b, box in l.words])
-                    for l in layout.lines]
+        layout.gutter_x = int(point(layout.gutter_x, flat_height / 2)[0])
+    layout.columns, layout.column_quads = both(layout.columns, layout.column_quads)
+    layout.blocks, layout.block_quads = both(layout.blocks, layout.block_quads)
+    layout.margins, layout.margin_quads = both(layout.margins, layout.margin_quads)
+    spans = []
+    for l in layout.lines:
+        quad = map_quad(l.quad or box_quad(l.box), point)
+        wq = [map_quad(q, point) for q in l.word_quads] if l.word_quads else [map_quad(box_quad(b), point) for _, _, b in l.words]
+        spans.append(LineSpan(l.start, l.end, quad_bounds(quad), [(a, b, quad_bounds(q)) for (a, b, _), q in zip(l.words, wq)], quad, wq))
+    layout.lines = spans
 
 
 def read_page(frame: np.ndarray, split: bool = True, enhance: bool = False) -> Tuple[str, PageLayout]:
@@ -1372,6 +1504,7 @@ class LiveGuide:
         reply = {"type": "guide", "state": "NO_TEXT", "label": "SHOW TEXT HERE", "speak": "", "capture": False,
                  "box": _norm(box, w, h) if box else None,
                  "lines": [_norm(l.box, w, h) for l in lines],
+                 "quads": [_norm_quad(l.quad, w, h) for l in lines if l.quad],
                  "quality": self.quality.summary(), "problems": list(self.quality.problems)}
 
         if not self.armed:
@@ -1452,15 +1585,26 @@ def speech_chunks(text: str, paragraphs, from_pos: int = 0, max_len: int = 600):
             start = end
 
 
+def _norm_quad(quad, w: int, h: int) -> List[List[float]]:
+    return [[round(x / w, 4), round(y / h, 4)] for x, y in quad]
+
+
 def layout_json(layout: PageLayout, w: int, h: int) -> dict:
-    """The page layout as JSON, with boxes normalised to 0-1 of the frame."""
+    """The page layout as JSON, with boxes normalised to 0-1 of the frame. `quads` / `quad` are the same shapes as
+    outlines that follow a slanted page; the page draws those when they are there."""
     return {
         "gutter": round(layout.gutter_x / w, 4) if layout.gutter_x else None,
         "columns": [_norm(b, w, h) for b in layout.columns],
         "blocks": [_norm(b, w, h) for b in layout.blocks],
         "margins": [_norm(b, w, h) for b in layout.margins],
+        "column_quads": [_norm_quad(q, w, h) for q in layout.column_quads],
+        "block_quads": [_norm_quad(q, w, h) for q in layout.block_quads],
+        "margin_quads": [_norm_quad(q, w, h) for q in layout.margin_quads],
         "lines": [{"start": s.start, "end": s.end, "box": _norm(s.box, w, h),
-                   "words": [[a, b, _norm(box, w, h)] for a, b, box in s.words]} for s in layout.lines],
+                   "quad": _norm_quad(s.quad, w, h) if s.quad else None,
+                   "words": [[a, b, _norm(box, w, h), _norm_quad(q, w, h) if q else None]
+                             for (a, b, box), q in zip(s.words, s.word_quads or [None] * len(s.words))]}
+                  for s in layout.lines],
     }
 
 

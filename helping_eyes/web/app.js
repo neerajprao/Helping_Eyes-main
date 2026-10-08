@@ -120,10 +120,32 @@ function prefetch() {
   if (serverVoiceUsable()) speechQueue.slice(0, PREFETCH).forEach(fetchAudio);
 }
 
+// Phones let a page play sound only after a tap, and only on an audio element that a tap has started. So one
+// element is created and unlocked at the first tap or key press, and reused for every sentence (a new element
+// per sentence is blocked on phones, which then fall back to the browser's own weak voice).
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let voiceEl = null, audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  try {
+    if (!voiceEl) voiceEl = new Audio();
+    voiceEl.src = SILENT_WAV;
+    const started = voiceEl.play();
+    if (started && started.catch) started.catch(() => {});
+    if (synth && /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent)) {       // the browser voice needs the same unlock
+      const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u);
+    }
+  } catch (err) { /* nothing to unlock */ }
+}
+["pointerdown", "touchend", "keydown", "click"].forEach((type) => document.addEventListener(type, unlockAudio, { passive: true }));
+
 function playAudio(item, url, finished) {
   item.url = url;
-  const audio = new Audio(url);
+  if (!voiceEl) voiceEl = new Audio();
+  const audio = voiceEl;
   player = audio;
+  audio.src = url;
   let lastIndex = -1;
   audio.onplay = () => { if (item.start !== null) speechPos = item.start; };
   audio.ontimeupdate = () => {
@@ -135,7 +157,7 @@ function playAudio(item, url, finished) {
   };
   // Never freeze the app if the audio neither plays nor ends
   const watchdog = setTimeout(() => done(), 8000 + item.text.length * 150);
-  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = null; audio.pause(); finished(); };
+  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = audio.ontimeupdate = audio.onplay = null; audio.pause(); finished(); };
   audio.onended = audio.onerror = done;
   audio.play().catch(() => { clearTimeout(watchdog); item.url = null; URL.revokeObjectURL(url); player = null; speakWithBrowser(item, finished); });
 }
@@ -411,19 +433,13 @@ async function checkQuality() {
   } catch (err) { /* the picture is still read; only the quality figures are missing */ }
 }
 
-// Quality line (red when something is wrong) and a marker where the glare is
-function drawPhotoQuality(ctx, W, H, bottom, marker = true) {
+// Quality line (red when something is wrong): the figures and the hint only, nothing drawn on the picture
+function drawPhotoQuality(ctx, W, H, bottom) {
   const q = photoQuality;
   if (!q) return;
   ctx.font = "13px sans-serif";
   ctx.fillStyle = q.problems.length ? "#ff3030" : COLORS.idle;
   ctx.fillText(q.quality + (q.hint ? "   " + q.hint : ""), (30 / 1280) * W + 10, bottom);
-  if (marker && q.problems.includes("glare") && q.glare_at) {
-    const x = q.glare_at[0] * W, y = q.glare_at[1] * H;
-    ctx.strokeStyle = "#ff3030"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y, 28, 0, 7); ctx.stroke();
-    ctx.fillStyle = "#ff3030"; ctx.font = "bold 16px sans-serif"; ctx.fillText("GLARE", x - 24, y - 36);
-  }
 }
 
 function backToCamera() {
@@ -803,6 +819,20 @@ function rect(ctx, box, W, H, pad = 0) {
   ctx.strokeRect(box[0] * W - pad, box[1] * H - pad, (box[2] - box[0]) * W + 2 * pad, (box[3] - box[1]) * H + 2 * pad);
 }
 
+// An outline that follows slanted text: four corners as fractions of the picture (stroke, or fill when asked)
+function poly(ctx, quad, W, H, fill = false) {
+  ctx.beginPath();
+  quad.forEach(([x, y], i) => (i ? ctx.lineTo(x * W, y * H) : ctx.moveTo(x * W, y * H)));
+  ctx.closePath();
+  if (fill) ctx.fill(); else ctx.stroke();
+}
+
+// Outlines when the server sent them (they follow a slanted page), otherwise plain boxes
+function outlines(ctx, quads, boxes, W, H, pad = 0) {
+  if (quads && quads.length) quads.forEach((q) => poly(ctx, q, W, H));
+  else (boxes || []).forEach((b) => rect(ctx, b, W, H, pad));
+}
+
 function drawGuideBox(ctx, W, H, color, label) {
   const mx = (30 / 1280) * W, my = (20 / 720) * H, c = 30;
   ctx.strokeStyle = color; ctx.lineWidth = 3;
@@ -819,16 +849,16 @@ function drawNormal(ctx, W, H) {
   if (uploadView) {
     if (photoQuality) {
       ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1;
-      for (const b of photoQuality.lines) rect(ctx, b, W, H);
-      if (photoQuality.box) { ctx.lineWidth = 2; rect(ctx, photoQuality.box, W, H); }
+      outlines(ctx, photoQuality.quads, photoQuality.lines, W, H);
+      if (photoQuality.box && !(photoQuality.quads || []).length) { ctx.lineWidth = 2; rect(ctx, photoQuality.box, W, H); }
     }
     drawGuideBox(ctx, W, H, COLORS.idle, "UPLOADED PHOTO");
     return drawPhotoQuality(ctx, W, H, H - (20 / 720) * H - 12);
   }
   if (!guide) return drawGuideBox(ctx, W, H, COLORS.idle, "SHOW TEXT HERE");
   ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1;
-  for (const b of guide.lines) rect(ctx, b, W, H);
-  if (guide.box) { ctx.lineWidth = 2; rect(ctx, guide.box, W, H); }
+  outlines(ctx, guide.quads, guide.lines, W, H);
+  if (guide.box && !(guide.quads || []).length) { ctx.lineWidth = 2; rect(ctx, guide.box, W, H); }
   const color = { CAPTURED: COLORS.ready, CAPTURING: COLORS.ready, HOLD: COLORS.hold, COACH: COLORS.hold,
                   ADJUST: COLORS.detect }[guide.state] || COLORS.idle;
   const label = guide.state === "CAPTURED" ? "CAPTURED - ASK ME   R = new item   A = read all" : guide.label;
@@ -848,12 +878,16 @@ function drawBook(ctx, W, H) {
     const L = pageLayout;
     if (L.gutter) { ctx.strokeStyle = "#ffff00"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(L.gutter * W, 0); ctx.lineTo(L.gutter * W, H); ctx.stroke(); }
     ctx.strokeStyle = "#c800c8"; ctx.lineWidth = 1;
-    for (const b of L.margins) rect(ctx, b, W, H, 3);
+    outlines(ctx, L.margin_quads, L.margins, W, H, 3);
     ctx.strokeStyle = "#0078ff";
-    for (const b of L.columns) rect(ctx, [b[0], 20 / 720, b[2], 1 - 20 / 720], W, H);
+    if (L.column_quads && L.column_quads.length) L.column_quads.forEach((q) => poly(ctx, q, W, H));
+    else for (const b of L.columns) rect(ctx, [b[0], 20 / 720, b[2], 1 - 20 / 720], W, H);
     L.blocks.forEach((b, i) => {
-      ctx.strokeStyle = "#00c800"; ctx.lineWidth = 2; rect(ctx, b, W, H);
-      const bx = Math.max(14, b[0] * W - 20), by = b[1] * H + 12;
+      ctx.strokeStyle = "#00c800"; ctx.lineWidth = 2;
+      const quad = L.block_quads && L.block_quads[i];
+      if (quad) poly(ctx, quad, W, H); else rect(ctx, b, W, H);
+      const bx = Math.max(14, (quad ? Math.min(...quad.map((p) => p[0])) : b[0]) * W - 20),
+            by = (quad ? Math.min(...quad.map((p) => p[1])) : b[1]) * H + 12;
       ctx.fillStyle = "#dc0000"; ctx.beginPath(); ctx.arc(bx, by, 14, 0, 7); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center";
       ctx.fillText(String(i + 1), bx, by + 5); ctx.textAlign = "left";
@@ -863,13 +897,14 @@ function drawBook(ctx, W, H) {
     const span = pos === null ? null : lineAt(pos);
     if (span) {
       ctx.fillStyle = "rgba(255,255,0,0.3)";
-      ctx.fillRect(span.box[0] * W - 4, span.box[1] * H - 3, (span.box[2] - span.box[0]) * W + 8, (span.box[3] - span.box[1]) * H + 6);
+      if (span.quad) poly(ctx, span.quad, W, H, true);
+      else ctx.fillRect(span.box[0] * W - 4, span.box[1] * H - 3, (span.box[2] - span.box[0]) * W + 8, (span.box[3] - span.box[1]) * H + 6);
       const word = span.words.find((w) => pos < w[1]);
-      if (word) { ctx.strokeStyle = "#ff7800"; ctx.lineWidth = 2; rect(ctx, word[2], W, H, 3); }
+      if (word) { ctx.strokeStyle = "#ff7800"; ctx.lineWidth = 2; if (word[3]) poly(ctx, word[3], W, H); else rect(ctx, word[2], W, H, 3); }
     }
   }
   const bar = 40;
-  if (uploadView) drawPhotoQuality(ctx, W, H, H - bar - 10, false);      // book mode: the figures only, no ring on the page
+  if (uploadView) drawPhotoQuality(ctx, W, H, H - bar - 10);
   ctx.fillStyle = "#282828"; ctx.fillRect(0, H - bar, W, bar);
   const s = bookState;
   ctx.fillStyle = "#00ffff"; ctx.font = "bold 16px sans-serif";

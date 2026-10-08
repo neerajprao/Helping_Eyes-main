@@ -171,6 +171,28 @@ def ollama_running() -> bool:
         return False
 
 
+QWEN_MODEL = os.environ.get("QWEN_3B_MODEL", "qwen2.5:3b-instruct")
+
+
+def warm_qwen() -> None:
+    """Load the Qwen model into memory now, so the first answer does not wait for it. Runs in the background and
+    prints one line. Says what to do if Ollama does not have the model."""
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=3) as r:
+            names = [m.get("name", "") for m in json.load(r).get("models", [])]
+        if QWEN_MODEL not in names:
+            print(f"  Qwen      the model {QWEN_MODEL} is not downloaded. Run:  ollama pull {QWEN_MODEL}")
+            return
+        started = time.time()
+        request = urllib.request.Request(f"{OLLAMA_URL}/api/generate", method="POST",
+                                         data=json.dumps({"model": QWEN_MODEL, "keep_alive": "1h"}).encode(),
+                                         headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(request, timeout=120).read()
+        print(f"  Qwen      {QWEN_MODEL} is loaded and ready ({time.time() - started:.1f} s)")
+    except Exception as e:
+        print(f"  Qwen      could not load {QWEN_MODEL}: {e}")
+
+
 def start_ollama():
     """Start `ollama serve` unless it is already running. Prints one line about it. Returns the process to
     stop at the end, or None when Ollama was already running (left alone) or is not installed."""
@@ -180,7 +202,8 @@ def start_ollama():
     if not shutil.which("ollama"):
         print("  Qwen      Ollama is not installed, so the Qwen choice is unavailable (https://ollama.com). Gemini still works.")
         return None
-    proc = subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            env={**os.environ, "OLLAMA_KEEP_ALIVE": os.environ.get("OLLAMA_KEEP_ALIVE", "1h")})
     for _ in range(40):                                  # up to 10 s
         if ollama_running():
             print("  Qwen      Ollama started")
@@ -252,6 +275,8 @@ def main() -> None:
         print(f"  AI model  NO KEY. Add  LLM_API_KEY=...  to {os.path.relpath(ENV_FILE, ROOT)}  to enable answers.")
         print("            (read everything, expiry, page numbers and the live guidance work without it)")
     ollama = None if args.no_ollama else start_ollama()
+    if not args.no_ollama and ollama_running():
+        threading.Thread(target=warm_qwen, daemon=True).start()          # the model loads while the rest starts
     if args.host == "0.0.0.0":
         print("  note      other devices need https for the camera; over plain http it works only on this computer")
     print("  stop      press Ctrl+C\n")

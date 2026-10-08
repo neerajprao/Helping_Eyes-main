@@ -34,7 +34,7 @@ Put these in `helping_eyes/.env` (see `.env.example`):
 | `LLM_MODEL` | No | Which AI model to use (default `gemini-3.1-flash-lite`). If the app says the model name was not found, look up the current Flash-Lite name and set it here. |
 | `LLM_BASE_URL` | No | Which AI service to talk to. Change it (with the model and key) to use another provider, such as Groq or OpenRouter. |
 | `TTS_VOICE`, `TTS_RATE`, `TTS_ENABLED` | No | The spoken voice (a free Microsoft Edge voice) and its speed; `TTS_ENABLED=0` uses the browser's own voice. |
-| `QWEN_3B_MODEL`, `QWEN_BASE_URL` | No | The local Qwen 3B model in the page's Model menu (default `qwen2.5:3b-instruct` through Ollama at `http://localhost:11434/v1`). `run.py` starts Ollama for you if it is installed; `--no-ollama` skips that. It runs on your Mac, so visitors using the shared address can pick it too, but it is slower when several people ask at once. |
+| `QWEN_3B_MODEL`, `QWEN_BASE_URL` | No | The local Qwen 3B model in the page's Model menu (default `qwen2.5:3b-instruct` through Ollama at `http://localhost:11434/v1`). `run.py` starts Ollama for you if it is installed and loads the model so the first answer is quick; `--no-ollama` skips that. It runs on your Mac, so visitors using the shared address can pick it too, but it is slower when several people ask at once. |
 | `PORT` | No | The port to use (default 7860); `run.py --port` does the same. |
 
 ## Things to know

@@ -91,6 +91,37 @@ def test_read_text_enhanced_on_a_blank_frame_returns_nothing():
     assert text == "" and method in ("original", "flattened", "tone", "flattened+tone", "binarized")
 
 
+def slanted_page(angle):
+    """Two paragraphs of three lines each, on a page turned by `angle` degrees."""
+    texts = ["The quick brown fox jumps over the lazy dog", "Pack my box with five dozen liquor jugs",
+             "Sphinx of black quartz judge my vow", "How vexingly quick daft zebras jump",
+             "The five boxing wizards jump quickly", "Jackdaws love my big sphinx of quartz"]
+    image = np.full((900, 1300, 3), 255, np.uint8)
+    for i, t in enumerate(texts):
+        cv2.putText(image, t, (260, 250 + i * 60 + (30 if i >= 3 else 0)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, cv2.LINE_AA)
+    return cv2.warpAffine(image, cv2.getRotationMatrix2D((650, 450), angle, 1.0), (1300, 900), borderValue=(255, 255, 255))
+
+
+def test_the_slant_of_a_page_is_measured():
+    for angle in (-12, -5, 0, 8, 15):
+        found = vision.estimate_skew(slanted_page(angle))
+        assert abs(found + angle) <= 1.0, (angle, found)           # rotating by -angle makes the lines level
+
+
+def test_a_slanted_page_keeps_its_paragraphs_and_outlines_follow_the_text():
+    for angle in (-10, 12):
+        text, layout = vision.read_page(slanted_page(angle), split=False, enhance=True)
+        assert len(layout.blocks) == 2 and len(layout.lines) == 6, (angle, len(layout.blocks), len(layout.lines))
+        assert text.index("quick brown") < text.index("Pack my") < text.index("Sphinx") < text.index("How vexingly")
+        assert len(layout.block_quads) == 2
+        for line in layout.lines:
+            tl, tr, br, bl = line.quad
+            height = float(np.hypot(bl[0] - tl[0], bl[1] - tl[1]))
+            slope = np.degrees(np.arctan2(tr[1] - tl[1], tr[0] - tl[0]))
+            assert 20 <= height <= 60, (angle, height)             # one line tall, not the height of the slanted bounds
+            assert abs(slope + angle) <= 2.5, (angle, slope)           # the outline leans the way the text does
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

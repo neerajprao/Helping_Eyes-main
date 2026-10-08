@@ -50,7 +50,7 @@ from pydantic import BaseModel
 import commands
 from commands import classify
 from assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
-from vision import (BookReader, BookWatcher, LiveGuide, _norm, assess_quality, find_text_region, read_page,
+from vision import (BookReader, BookWatcher, LiveGuide, _norm, _norm_quad, assess_quality, find_text_region, read_page,
                     read_text_enhanced)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -308,6 +308,7 @@ async def quality(request: Request, image: UploadFile = File(...)) -> dict:
 
     box, lines, q = await run_in_threadpool(work)
     return {"box": _norm(box, w, h) if box else None, "lines": [_norm(l.box, w, h) for l in lines],
+            "quads": [_norm_quad(l.quad, w, h) for l in lines if l.quad],
             "quality": q.summary(), "problems": list(q.problems), "hint": q.hint(),
             "glare_at": list(q.glare_at) if q.glare_at else None}
 
