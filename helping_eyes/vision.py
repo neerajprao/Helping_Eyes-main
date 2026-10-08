@@ -747,7 +747,8 @@ def texture_profile(gray: np.ndarray, window: int = 15) -> np.ndarray:
 def split_spread(image: np.ndarray, min_depth: float = 0.12) -> Optional[int]:
     """
     Find the gutter (spine) of an open book and return its x position, or
-    None for a single page.
+    None for a single page. A spine is only reported when the picture shows
+    evidence of one; it is never assumed to be in the middle.
 
     1. Find the book (the paper). A two-page spread is clearly wider than
        tall; a single page is not.
@@ -756,7 +757,11 @@ def split_spread(image: np.ndarray, min_depth: float = 0.12) -> Optional[int]:
     3. The text-free strip: text never crosses the spine, so the two inner
        margins form a smooth vertical strip in the middle of the book. This
        works for a flat, fully open book whose spine casts no shadow. Of the
-       smooth strips, the one nearest the middle of the book wins.
+       smooth strips, the one nearest the middle of the book wins. It must be
+       wider than the gap between two columns of one page.
+    4. Either way, both sides of the spine must hold a page of text. A single
+       sheet, a page with two columns, or a picture that is mostly one block
+       of text has no spine, and no line is drawn.
     """
     h, w = image.shape[:2]
     bx1, by1, bx2, by2 = find_book(image)
@@ -766,6 +771,15 @@ def split_spread(image: np.ndarray, min_depth: float = 0.12) -> Optional[int]:
     gray = cv2.cvtColor(image[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
     lo, hi = int(bw * 0.3), int(bw * 0.7)
 
+    tex = texture_profile(gray)
+    text_level = float(np.median(tex[int(bw * 0.1):int(bw * 0.9)]))
+    busy = tex > 0.6 * text_level
+
+    def text_on_both_sides(x: int) -> bool:
+        """Each side of x holds a real block of text (at least a fifth of the book's width)."""
+        left, right = busy[:max(x - int(bw * 0.01), 0)], busy[x + int(bw * 0.01):]
+        return left.sum() >= 0.2 * bw and right.sum() >= 0.2 * bw
+
     # --- clue 1: the spine's shadow ---
     profile = gray.astype(np.float32)[int(bh * 0.1):int(bh * 0.9)].mean(axis=0)
     k = max(3, bw // 100)
@@ -773,23 +787,20 @@ def split_spread(image: np.ndarray, min_depth: float = 0.12) -> Optional[int]:
     x = lo + int(np.argmin(profile[lo:hi]))
     left = np.median(profile[int(bw * 0.15):lo])
     right = np.median(profile[hi:int(bw * 0.85)])
-    if profile[x] < (1.0 - min_depth) * min(left, right):
+    if profile[x] < (1.0 - min_depth) * min(left, right) and text_on_both_sides(x):
         return bx1 + x
 
     # --- clue 2: the smooth, text-free strip nearest the middle ---
-    tex = texture_profile(gray)
-    text_level = float(np.median(tex[int(bw * 0.1):int(bw * 0.9)]))
     quiet = tex[lo:hi] < 0.6 * text_level
-    runs = [(a, b) for a, b in _runs(quiet) if b - a >= max(4, bw * 0.015)]
+    runs = [(a, b) for a, b in _runs(quiet) if b - a >= max(4, bw * 0.07)]     # wider than the gap between columns of one page
     if runs:
         middle = bw / 2 - lo
         a, b = min(runs, key=lambda r: 0 if r[0] <= middle <= r[1] else min(abs(r[0] - middle), abs(r[1] - middle)))
-        return bx1 + lo + (a + b) // 2
+        x = lo + (a + b) // 2
+        if text_on_both_sides(x):
+            return bx1 + x
 
-    # --- a very wide book with no clear clue: split down the middle ---
-    if bw > 1.3 * bh and bw > 0.5 * w:
-        return bx1 + bw // 2
-    return None
+    return None                          # no evidence of a spine: a single page
 
 
 # =====================================================================

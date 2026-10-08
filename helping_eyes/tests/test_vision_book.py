@@ -182,6 +182,43 @@ def test_a_single_portrait_page_is_not_split():
     assert vision.split_spread(image) is None
 
 
+def sheet(columns, gap_px, width=1920, height=1080):
+    """One landscape sheet of paper on a dark desk, with `columns` columns of text and gap_px between them."""
+    image = np.full((height, width, 3), 55, np.uint8)
+    x1, x2, y1, y2 = 150, width - 150, 90, height - 90
+    image[y1:y2, x1:x2] = 238
+    col_w = (x2 - x1 - 120 - gap_px * (columns - 1)) // columns
+    text = "the river was quiet that morning and nobody came"
+    (text_w, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.85, 2)
+    for c in range(columns):
+        cx = x1 + 60 + c * (col_w + gap_px)
+        for row in range(14):
+            cv2.putText(image, text[:int(len(text) * min(1.0, col_w / text_w))], (cx, y1 + 70 + row * 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.85, (25, 25, 25), 2, cv2.LINE_AA)
+    return image
+
+
+def test_a_single_wide_sheet_of_text_gets_no_spine_line():
+    assert vision.split_spread(sheet(columns=1, gap_px=0)) is None
+
+
+def test_two_columns_on_one_sheet_are_not_mistaken_for_a_spine():
+    assert vision.split_spread(sheet(columns=2, gap_px=40)) is None      # a normal gap between columns
+
+
+def test_an_empty_or_blank_sheet_gets_no_spine_line():
+    image = np.full((1080, 1920, 3), 55, np.uint8)
+    image[90:990, 150:1770] = 238
+    assert vision.split_spread(image) is None
+
+
+def test_a_spread_with_text_only_on_one_side_gets_no_spine_line():
+    image, mid = spread(shadow=True)
+    image[:, mid + 60:] = np.where(image[:, mid + 60:] < 100, image[:, mid + 60:], 230)    # wipe the text on the right page
+    image[:, mid + 60:][image[:, mid + 60:] < 200] = 230
+    assert vision.split_spread(image) is None
+
+
 # ---------------------------------------------------------------- page turns
 def page_a():
     image = np.full((360, 640, 3), 240, np.uint8)
