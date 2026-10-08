@@ -225,7 +225,7 @@ LLM_API_KEY=<YOUR_KEY>
 # LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
-To use another provider, change `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` (for example Groq or OpenRouter, both of which have free tiers); no code changes are needed. Optional image settings: `VISION_ENHANCE=0` (turn off the image-correction layer) and `BLUR_MIN`. The camera is chosen in the browser. Optional voice settings: `TTS_VOICE` (default `en-US-JennyNeural`, female), `TTS_RATE` (speed, e.g. `+10%`) and `TTS_ENABLED=0` (always use the browser voice).
+The **Model** menu on the page chooses who answers: Gemini (online, the settings above) or Qwen 3B / Qwen 7B running on this Mac through [Ollama](https://ollama.com) (`python run.py` starts Ollama for you if it is installed and not already running, and stops it at the end only if it started it; `--no-ollama` skips this; no key needed). Qwen settings: `QWEN_3B_MODEL` (default `qwen2.5:3b-instruct`) and `QWEN_7B_MODEL` (default `qwen2.5:7b-instruct`), as listed by `ollama list`, and `QWEN_BASE_URL` (default `http://localhost:11434/v1`). The choice is sent with every request and remembered by the browser. To use another provider, change `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` (for example Groq or OpenRouter, both of which have free tiers); no code changes are needed. Optional image settings: `VISION_ENHANCE=0` (turn off the image-correction layer) and `BLUR_MIN`. The camera is chosen in the browser. Optional voice settings: `TTS_VOICE` (default `en-US-JennyNeural`, female), `TTS_RATE` (speed, e.g. `+10%`) and `TTS_ENABLED=0` (always use the browser voice).
 
 ---
 

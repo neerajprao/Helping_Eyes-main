@@ -6,8 +6,10 @@ Run Helping Eyes on this computer, the same app that runs on the host:
     python run.py --port 8000        use another port (default 7860; the next free one if it is taken)
     python run.py --host 0.0.0.0     also reachable from other devices on your network
     python run.py --share            also give it a public https address (free Cloudflare tunnel, no account)
+    python run.py --no-ollama        do not start Ollama (the local Qwen model in the page's Model menu)
 
-It checks your setup, starts the server (helping_eyes/server.py), waits until it is ready and opens
+It checks your setup, starts Ollama if it is installed and not already running (and stops it again at the
+end only if it started it), starts the server (helping_eyes/server.py), waits until it is ready and opens
 the page. Chrome does the camera, the microphone, speech to text and text to speech, exactly as it
 does for a visitor on the host. The only thing you need is a language-model key in helping_eyes/.env:
 
@@ -157,6 +159,40 @@ def stop_share(procs) -> None:
         proc.terminate()
 
 
+# ---------------------------------------------------------------- ollama (the local Qwen model)
+OLLAMA_URL = "http://127.0.0.1:11434"
+
+
+def ollama_running() -> bool:
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1):
+            return True
+    except Exception:
+        return False
+
+
+def start_ollama():
+    """Start `ollama serve` unless it is already running. Prints one line about it. Returns the process to
+    stop at the end, or None when Ollama was already running (left alone) or is not installed."""
+    if ollama_running():
+        print("  Qwen      Ollama is already running")
+        return None
+    if not shutil.which("ollama"):
+        print("  Qwen      Ollama is not installed, so the Qwen choice is unavailable (https://ollama.com). Gemini still works.")
+        return None
+    proc = subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):                                  # up to 10 s
+        if ollama_running():
+            print("  Qwen      Ollama started")
+            return proc
+        if proc.poll() is not None:
+            break
+        time.sleep(0.25)
+    print("  Qwen      Ollama did not start, so the Qwen choice is unavailable. Gemini still works.")
+    proc.terminate()
+    return None
+
+
 # ---------------------------------------------------------------- start
 def health(port: int):
     try:
@@ -193,6 +229,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", DEFAULT_PORT)), help="port to use (default 7860)")
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this computer only)")
     parser.add_argument("--no-browser", action="store_true", help="do not open the page")
+    parser.add_argument("--no-ollama", action="store_true", help="do not start Ollama (the local Qwen model)")
     parser.add_argument("--share", action="store_true", help="also give it a public https address (free Cloudflare tunnel)")
     args = parser.parse_args()
 
@@ -214,6 +251,7 @@ def main() -> None:
     else:
         print(f"  AI model  NO KEY. Add  LLM_API_KEY=...  to {os.path.relpath(ENV_FILE, ROOT)}  to enable answers.")
         print("            (read everything, expiry, page numbers and the live guidance work without it)")
+    ollama = None if args.no_ollama else start_ollama()
     if args.host == "0.0.0.0":
         print("  note      other devices need https for the camera; over plain http it works only on this computer")
     print("  stop      press Ctrl+C\n")
@@ -228,6 +266,8 @@ def main() -> None:
         pass
     finally:
         stop_share(shared)
+        if ollama:
+            ollama.terminate()
     print("\nStopped.")
 
 

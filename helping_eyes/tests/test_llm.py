@@ -204,6 +204,32 @@ def test_the_server_offers_a_web_lookup_and_runs_it_after_yes():
     assert [e["text"] for e in ask("yes") if e["type"] == "sentence"] != web[0]["text"]   # the offer is gone
 
 
+def test_the_chosen_model_answers_and_unknown_choices_are_ignored():
+    doc = setup("Two tablets.")
+    saved = da.QWEN_BASE_URL, dict(da.QWEN_MODELS)
+    da.QWEN_BASE_URL, da.QWEN_MODELS["qwen3b"] = BASE, "qwen-small"
+    da.QWEN_MODELS["qwen7b"] = "qwen-big"
+    try:
+        doc.set_provider("qwen3b")
+        list(doc.ask("how many?"))
+        headers, body = Fake.requests[-1]
+        assert body["model"] == "qwen-small" and "Authorization" not in headers   # no key for the local model
+        doc.set_provider("qwen7b")
+        list(doc.ask("how many?"))
+        assert Fake.requests[-1][1]["model"] == "qwen-big"
+        doc.set_provider("nonsense")                                               # ignored: still qwen7b
+        assert doc.provider == "qwen7b"
+        doc.set_provider("gemini")
+        list(doc.ask("how many again?"))
+        assert Fake.requests[-1][1]["model"] == "some-model"
+        da.QWEN_BASE_URL = "http://127.0.0.1:9"                                    # Ollama not running
+        doc.set_provider("qwen7b")
+        assert list(doc.ask("and now?")) == [da.MSG_QWEN_DOWN]
+    finally:
+        da.QWEN_BASE_URL = saved[0]
+        da.QWEN_MODELS.update(saved[1])
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

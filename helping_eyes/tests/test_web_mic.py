@@ -130,7 +130,7 @@ class Page:
 def start_app():
     port = free_port()
     env = {**os.environ, "LLM_API_KEY": ""}
-    proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "run.py"), "--no-browser", "--port", str(port)], env=env,
+    proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "run.py"), "--no-browser", "--no-ollama", "--port", str(port)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(180):
         try:

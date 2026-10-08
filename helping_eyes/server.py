@@ -340,6 +340,7 @@ async def book_page(request: Request, image: UploadFile = File(...), sid: str = 
 class Question(BaseModel):
     sid: str
     question: str = ""
+    provider: str = ""             # language model chosen in the page's menu: "gemini", "qwen3b" or "qwen7b" ("" keeps the last one)
 
 
 @app.post("/api/ask")
@@ -354,6 +355,7 @@ def ask(q: Question, request: Request) -> StreamingResponse:
     _rate_limit(request)
     session = _get_session(q.sid)
     request_text = q.question.strip()
+    session.doc.set_provider(q.provider)
 
     def sentences(text: str, source: Optional[str] = None) -> Iterator[str]:
         for s in _sentences(text):

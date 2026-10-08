@@ -12,6 +12,7 @@ What each button on the page does, and what you can say or type.
 | **Upload photo** | – | Pick a picture from your device instead of using the camera. It is shown where the camera preview is, with sharpness, light and glare info. In book mode it is read like a camera page, with the reading overlay and highlight. |
 | **Uploaded photo is a two-page spread** | – | Tick it before uploading a photo of two facing pages, in normal mode, so they are split and read in order. |
 | **Back to camera** | – | Appears while an uploaded photo is shown. Returns to the live camera. |
+| **Model** menu | – | Chooses who answers your questions: Gemini (online), Qwen 3B (faster) or Qwen 7B (better); both Qwens run on this Mac through Ollama. Your choice is remembered. |
 | **Ask** | `Enter` in the box | Sends the question you typed. |
 | **Listen** | `M` | Turns the microphone on or off. While on, it listens whenever the app is quiet and sends what you say. |
 | **Read everything** | `A` | Reads all the captured text aloud. Same as saying "read everything". |

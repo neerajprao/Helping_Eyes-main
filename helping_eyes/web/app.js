@@ -582,7 +582,7 @@ async function ask(text) {
   try {
     const res = await fetch("/api/ask", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid, question: text }), signal: mine.signal,
+      body: JSON.stringify({ sid, question: text, provider: $("model").value }), signal: mine.signal,
     });
     if (!res.ok) throw new Error(await failure(res));
     const reader = res.body.getReader();
@@ -728,6 +728,13 @@ function listenTick() {
   try { r.start(); } catch (err) { recognizer = null; }
 }
 setInterval(listenTick, 300);
+
+// ================================================================ model menu (Gemini online or Qwen on this computer)
+try { const saved = localStorage.getItem("model"); if (saved) $("model").value = saved; } catch (err) { /* storage blocked */ }
+$("model").addEventListener("change", () => {
+  try { localStorage.setItem("model", $("model").value); } catch (err) { /* storage blocked */ }
+  setStatus("Answers now come from " + $("model").selectedOptions[0].textContent.replace(/ \(.*/, "") + ".");
+});
 
 // ================================================================ keyboard
 document.addEventListener("keydown", (e) => {

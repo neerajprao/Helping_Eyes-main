@@ -7,6 +7,13 @@ Settings (environment or .env); nothing here is specific to one provider:
     LLM_BASE_URL  chat API address (default: Google Gemini's OpenAI-compatible endpoint)
     LLM_API_KEY   the provider's API key
     LLM_MODEL     model name (default: gemini-3.1-flash-lite)
+
+The page's model menu picks between two providers per request:
+    gemini        the settings above
+    qwen3b, qwen7b  models on this computer, served by Ollama (https://ollama.com)
+    QWEN_BASE_URL  Ollama's OpenAI-compatible address (default: http://localhost:11434/v1)
+    QWEN_3B_MODEL  the 3B model's name in `ollama list` (default: qwen2.5:3b-instruct)
+    QWEN_7B_MODEL  the 7B model's name in `ollama list` (default: qwen2.5:7b-instruct)
 """
 
 import json
@@ -25,6 +32,11 @@ logger = logging.getLogger(__name__)
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").rstrip("/")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
+
+QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+QWEN_MODELS = {"qwen3b": os.getenv("QWEN_3B_MODEL", "qwen2.5:3b-instruct"),
+               "qwen7b": os.getenv("QWEN_7B_MODEL", "qwen2.5:7b-instruct")}
+PROVIDERS = ("gemini", *QWEN_MODELS)
 
 # The model replies with exactly this when the user wants everything read out;
 # the app then speaks the OCR text itself instead of the model's version.
@@ -109,6 +121,7 @@ MSG_NO_KEY = "No API key is set for the language model. Please set LLM_API_KEY."
 MSG_BAD_KEY = "The language model rejected the request. Please check the API key."
 MSG_NO_MODEL = "The language model name was not found. Please check LLM_MODEL and LLM_BASE_URL."
 MSG_BUSY = "The language model is busy right now, or today's free limit is used up. Please try again in a minute."
+MSG_QWEN_DOWN = "I can't reach the Qwen model on this computer. Please start Ollama, or choose Gemini."
 MSG_FAILED = "Sorry, something went wrong while thinking about that."
 
 # Split finished sentences out of a growing stream of text. A sentence only
@@ -232,8 +245,13 @@ def _why(response) -> str:
         return "(no details)"
 
 
-def _headers() -> dict:
-    return {"Content-Type": "application/json", **({"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {})}
+def _endpoint(provider: str) -> Tuple[str, dict, str, str]:
+    """(chat API address, headers, model name, API key) of a provider; read at call time."""
+    if provider in QWEN_MODELS:
+        return QWEN_BASE_URL, {"Content-Type": "application/json"}, QWEN_MODELS[provider], ""
+    return (LLM_BASE_URL,
+            {"Content-Type": "application/json", **({"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {})},
+            LLM_MODEL, LLM_API_KEY)
 
 
 class DocAssistant:
@@ -244,6 +262,7 @@ class DocAssistant:
         self.facts = ""
         self.page_label = ""
         self.history: List[dict] = []
+        self.provider = "gemini"       # which language model answers: one of PROVIDERS
         self.last_not_in_text = False  # last answer said the text doesn't have it
         self._generation = 0           # bumped by cancel(); stale streams stop early
         self._lock = threading.Lock()
@@ -267,6 +286,11 @@ class DocAssistant:
             self.document = text
             self.facts = facts
             self.page_label = page_label
+
+    def set_provider(self, provider: str) -> None:
+        """Choose the language model for the next answers (unknown names are ignored)."""
+        if provider in PROVIDERS:
+            self.provider = provider
 
     def has_document(self) -> bool:
         return bool(self.document.strip())
@@ -353,8 +377,9 @@ class DocAssistant:
     def _search_query(self, question: str, document: str) -> Optional[str]:
         """Ask the model for a short search query that includes the product name."""
         try:
-            r = requests.post(f"{LLM_BASE_URL}/chat/completions", headers=_headers(), json={
-                "model": LLM_MODEL,
+            base, headers, model, _ = _endpoint(self.provider)
+            r = requests.post(f"{base}/chat/completions", headers=headers, json={
+                "model": model,
                 "messages": [{"role": "user", "content": QUERY_PROMPT.format(
                     document=document[:1500], question=question)}],
                 "temperature": 0,
@@ -376,11 +401,12 @@ class DocAssistant:
         answer = ""
         buffer = ""
         decided = not markers  # whether the reply's opening marker (if any) is known
+        base, headers, model, key = _endpoint(self.provider)
         try:
             with requests.post(
-                f"{LLM_BASE_URL}/chat/completions",
-                headers=_headers(),
-                json={"model": LLM_MODEL, "messages": messages, "stream": True, "temperature": 0.2},
+                f"{base}/chat/completions",
+                headers=headers,
+                json={"model": model, "messages": messages, "stream": True, "temperature": 0.2},
                 stream=True,
                 timeout=(5, 120),
             ) as r:
@@ -432,15 +458,17 @@ class DocAssistant:
                         break
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else 0
-            logger.error(f"Language model returned HTTP {status} for model {LLM_MODEL}: {_why(e.response)}")
-            if not LLM_API_KEY and status in (400, 401, 403):
+            logger.error(f"Language model returned HTTP {status} for model {model}: {_why(e.response)}")
+            if self.provider in QWEN_MODELS:
+                yield MSG_NO_MODEL.replace("LLM_MODEL and LLM_BASE_URL", "the Qwen model name (and that Ollama has it)") if status == 404 else MSG_FAILED
+            elif not key and status in (400, 401, 403):
                 yield MSG_NO_KEY                               # providers answer a missing key with 400, 401 or 403
             else:
                 yield (MSG_BAD_KEY if status in (401, 403) else MSG_NO_MODEL if status == 404
                        else MSG_BUSY if status == 429 else MSG_FAILED)
             return
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            yield MSG_UNREACHABLE
+            yield MSG_QWEN_DOWN if self.provider in QWEN_MODELS else MSG_UNREACHABLE
             return
         except Exception as e:
             logger.error(f"Model error: {e}")

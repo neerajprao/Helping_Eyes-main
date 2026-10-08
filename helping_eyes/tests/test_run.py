@@ -111,7 +111,7 @@ def test_share_without_cloudflared_says_how_to_install_it(capsys=None):
 # ---------------------------------------------------------------- the real thing
 def start(*args):
     env = {**os.environ, "LLM_API_KEY": ""}                   # no key, whatever is in the developer's own .env
-    return subprocess.Popen([sys.executable, os.path.join(ROOT, "run.py"), "--no-browser", *args], env=env,
+    return subprocess.Popen([sys.executable, os.path.join(ROOT, "run.py"), "--no-browser", "--no-ollama", *args], env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 
