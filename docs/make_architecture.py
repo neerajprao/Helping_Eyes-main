@@ -34,8 +34,8 @@ panel(30,70,700,675,"Camera path","#eff6ff")
 panel(770,70,700,675,"Voice / typing path","#fff7ed")
 I="#1d4ed8"; V="#c2410c"
 # camera path
-box(210,105,320,50,["INPUT 1: camera pictures"],"#dbeafe",I)
-box(210,195,320,70,["vision.py, part D (the coach)","looks for text, checks blur and glare"],"#fff",I)
+box(210,105,320,50,["INPUT 1: camera or uploaded photo"],"#dbeafe",I)
+box(210,190,320,80,["vision.py, part D (the coach)","looks for text, checks blur and glare","(uploads: shown on the photo too)"],"#fff",I)
 box(45,200,140,60,["Hint","move closer, left,","hold still"],"#fff",I)
 box(160,330,240,50,["Full photo","normal mode: text is steady"],"#fff",I)
 box(160,420,240,60,["vision.py, part B","fix tilt, glare, shadows"],"#fff",I)
@@ -47,9 +47,9 @@ box(210,665,320,60,["Captured text","saved for questions"],"#e0e7ff",I)
 # voice path
 box(800,105,290,50,["INPUT 2: your voice or typing"],"#ffedd5",V)
 box(800,195,290,60,["Browser: speech to text"],"#fff",V)
-box(800,285,290,70,["commands.py","command or question?"],"#fff",V)
+box(800,285,290,70,["commands.py","command or question?","unclear wording: the AI decides"],"#fff",V)
 box(1180,295,260,60,["Do it","stop, repeat, next, book mode"],"#fff",V)
-box(800,420,290,90,["assistant.py + AI chat model","answers only from the saved text"],"#fff",V)
+box(800,420,290,90,["assistant.py + the chosen AI model","Gemini (online) or Qwen 3B (Ollama)","answers only from the saved text"],"#fff",V)
 box(1180,420,260,90,["DuckDuckGo search","then the AI answers from","the results"],"#fff",V)
 box(800,575,640,55,["Answer, sentence by sentence","each sentence goes to the voice (commands.py, free Edge neural voice)"],"#fff",V)
 # output

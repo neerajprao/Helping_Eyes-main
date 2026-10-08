@@ -7,10 +7,11 @@
 <rect x="770" y="70" width="700" height="675" rx="14" fill="#fff7ed" stroke="#9ca3af"/>
 <text x="1120.0" y="98" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">Voice / typing path</text>
 <rect x="210" y="105" width="320" height="50" rx="8" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="370.0" y="135.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">INPUT 1: camera pictures</text>
-<rect x="210" y="195" width="320" height="70" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
-<text x="370.0" y="225.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part D (the coach)</text>
-<text x="370.0" y="245.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">looks for text, checks blur and glare</text>
+<text x="370.0" y="135.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">INPUT 1: camera or uploaded photo</text>
+<rect x="210" y="190" width="320" height="80" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="370.0" y="215.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">vision.py, part D (the coach)</text>
+<text x="370.0" y="235.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">looks for text, checks blur and glare</text>
+<text x="370.0" y="255.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">(uploads: shown on the photo too)</text>
 <rect x="45" y="200" width="140" height="60" rx="8" fill="#fff" stroke="#1d4ed8" stroke-width="1.5"/>
 <text x="115.0" y="215.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Hint</text>
 <text x="115.0" y="235.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">move closer, left,</text>
@@ -44,14 +45,16 @@
 <rect x="800" y="195" width="290" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
 <text x="945.0" y="230.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Browser: speech to text</text>
 <rect x="800" y="285" width="290" height="70" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="945.0" y="315.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">commands.py</text>
-<text x="945.0" y="335.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">command or question?</text>
+<text x="945.0" y="305.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">commands.py</text>
+<text x="945.0" y="325.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">command or question?</text>
+<text x="945.0" y="345.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">unclear wording: the AI decides</text>
 <rect x="1180" y="295" width="260" height="60" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
 <text x="1310.0" y="320.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Do it</text>
 <text x="1310.0" y="340.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">stop, repeat, next, book mode</text>
 <rect x="800" y="420" width="290" height="90" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
-<text x="945.0" y="460.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">assistant.py + AI chat model</text>
-<text x="945.0" y="480.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">answers only from the saved text</text>
+<text x="945.0" y="450.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">assistant.py + the chosen AI model</text>
+<text x="945.0" y="470.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">Gemini (online) or Qwen 3B (Ollama)</text>
+<text x="945.0" y="490.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">answers only from the saved text</text>
 <rect x="1180" y="420" width="260" height="90" rx="8" fill="#fff" stroke="#c2410c" stroke-width="1.5"/>
 <text x="1310.0" y="450.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">DuckDuckGo search</text>
 <text x="1310.0" y="470.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">then the AI answers from</text>

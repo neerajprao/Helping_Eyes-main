@@ -390,6 +390,38 @@ class DocAssistant:
             logger.warning(f"Couldn't build a search query: {e}")
             return None
 
+    def judge_intent(self, text: str, offer_pending: bool, subject: str = "") -> str:
+        """
+        What does this request mean for the web lookup? Replies "yes" / "no" (only when the app has just offered
+        to look something up), "search" / "search: <topic>" (the user wants something searched online), or "other".
+        """
+        if offer_pending:
+            task = (f'The app just asked: "Should I look up the answer to \'{subject}\' online?" The user replied. '
+                    'Answer YES if the reply means go ahead / agree / search / look it up in any wording or language, '
+                    'NO if it means decline, otherwise OTHER. Reply with that one word only.')
+        else:
+            task = ('Does the user ask the app to search the web or look something up online? If yes, reply '
+                    '"SEARCH: " followed by the topic to search for, in a few words taken from their request '
+                    '(example: "can you google ibuprofen side effects" -> "SEARCH: ibuprofen side effects"). '
+                    'If they only say to search without a topic (example: "check that online"), reply just "SEARCH"'
+                    + (f' (their previous question was "{subject}")' if subject else '') + '. Otherwise reply "OTHER".')
+        base, headers, model, _ = _endpoint(self.provider)
+        r = requests.post(f"{base}/chat/completions", headers=headers, json={
+            "model": model, "temperature": 0, "max_tokens": 40,
+            "messages": [{"role": "system", "content": task},
+                         {"role": "user", "content": text}]}, timeout=20)
+        r.raise_for_status()
+        reply = (r.json()["choices"][0]["message"]["content"] or "").strip().strip(".\"'")
+        low = reply.lower()
+        if low.startswith("yes"):
+            return "yes"
+        if low.startswith("no") and not low.startswith("none"):
+            return "no"
+        if low.startswith("search"):
+            topic = reply.partition(":")[2].strip()
+            return "search: " + topic if topic.lower() not in ("", "it", "that", "this", "that one", "this one") else "search"
+        return "other"
+
     def _stream(self, messages: List[dict], generation: int, markers=()) -> Iterator[str]:
         """
         Stream a chat reply sentence by sentence. If the reply starts with one

@@ -34,6 +34,7 @@ Put these in `helping_eyes/.env` (see `.env.example`):
 | `LLM_MODEL` | No | Which AI model to use (default `gemini-3.1-flash-lite`). If the app says the model name was not found, look up the current Flash-Lite name and set it here. |
 | `LLM_BASE_URL` | No | Which AI service to talk to. Change it (with the model and key) to use another provider, such as Groq or OpenRouter. |
 | `TTS_VOICE`, `TTS_RATE`, `TTS_ENABLED` | No | The spoken voice (a free Microsoft Edge voice) and its speed; `TTS_ENABLED=0` uses the browser's own voice. |
+| `QWEN_3B_MODEL`, `QWEN_BASE_URL` | No | The local Qwen 3B model in the page's Model menu (default `qwen2.5:3b-instruct` through Ollama at `http://localhost:11434/v1`). `run.py` starts Ollama for you if it is installed; `--no-ollama` skips that. It runs on your Mac, so visitors using the shared address can pick it too, but it is slower when several people ask at once. |
 | `PORT` | No | The port to use (default 7860); `run.py --port` does the same. |
 
 ## Things to know
@@ -53,7 +54,7 @@ Put these in `helping_eyes/.env` (see `.env.example`):
 | `helping_eyes/server.py` | The front desk: receives pictures and requests from visitors and sends answers back. |
 | `helping_eyes/vision.py` | The eyes: reads text from pictures with Apple Vision, fixes bad photos, understands book pages, and gives the "move closer" hints. |
 | `helping_eyes/commands.py` | The listener and the voice: decides if what you said is a command or a question, and turns each sentence into spoken audio. |
-| `helping_eyes/assistant.py` | The answerer: asks the AI model (Gemini) and searches the web when you agree. |
+| `helping_eyes/assistant.py` | The answerer: asks the AI model (Gemini, or Qwen 3B on your Mac) and searches the web when you agree. |
 | `helping_eyes/web/` | The web page: `index.html` (layout), `app.js` (camera, voice and speaking), `style.css` (looks). |
 | `helping_eyes/.env.example` | A template of the settings. Copy it to `.env` and put your key in it. `.gitignore` keeps `.env` out of git. |
 | `.github/workflows/check.yml` | Makes GitHub run all the tests on a Mac every time you push. It does not deploy anything. |

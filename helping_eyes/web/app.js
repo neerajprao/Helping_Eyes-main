@@ -206,7 +206,9 @@ function stopSpeaking() {
 let cameraReady = false;
 let uploadView = false;       // an uploaded photo is shown in place of the camera
 
-async function startCamera() {
+let cameraFailed = "";        // why the camera could not be opened ("" when it works)
+
+async function startCamera(first = true) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return cameraUnavailable("This browser has no camera access. Use Upload photo instead.");
   }
@@ -214,16 +216,26 @@ async function startCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
     });
+    if (uploadView) { stream.getTracks().forEach((t) => t.stop()); return; }      // an upload was opened meanwhile
     video.srcObject = stream;
-    video.addEventListener("loadedmetadata", () => { cameraReady = true; sizeOverlay(); connectLive(); });
+    video.addEventListener("loadedmetadata", () => { cameraReady = true; sizeOverlay(); if (!ws) connectLive(); }, { once: true });
     setStatus("Camera ready. Show something to read.");
-    say("System online. Show me something to read.");
+    if (first) say("System online. Show me something to read.");
   } catch (err) {
     cameraUnavailable("Camera not available (" + err.name + "). Use Upload photo instead.");
   }
 }
 
+// Switch the camera off completely (the light goes out), not just hide it
+function stopCamera() {
+  cameraReady = false;
+  const stream = video.srcObject;
+  if (stream) stream.getTracks().forEach((track) => track.stop());
+  video.srcObject = null;
+}
+
 function cameraUnavailable(message) {
+  cameraFailed = message;
   video.hidden = true;
   overlay.hidden = true;
   $("camera-message").hidden = false;
@@ -374,6 +386,7 @@ $("capture").addEventListener("click", async () => {
 // An uploaded photo: shown in place of the camera, with the same overlay
 function showStill(url) {
   uploadView = true;
+  stopCamera();                       // the camera is off while an uploaded photo is used
   still.onload = () => { sizeOverlay(); };
   still.src = url;
   still.hidden = false;
@@ -421,7 +434,10 @@ function backToCamera() {
   still.removeAttribute("src");
   $("back-to-camera").hidden = true;
   resetBook();
-  if (cameraReady) { video.hidden = false; sizeOverlay(); } else cameraUnavailable($("camera-message").textContent);
+  if (cameraFailed) return cameraUnavailable(cameraFailed);
+  video.hidden = false;
+  setStatus("Starting the camera…");
+  startCamera(false);
 }
 $("back-to-camera").addEventListener("click", backToCamera);
 
@@ -663,11 +679,23 @@ const MIC_HELP = {
 };
 MIC_HELP["service-not-allowed"] = MIC_HELP["not-allowed"];
 
+// The button shows whether the microphone is really on: it is off while the app is talking or thinking
+// (even though listening is switched on) and turns itself on again when the app is quiet.
+function micIsOpen() {
+  return listening && !thinking && !isSpeaking() && performance.now() - lastSpeechActivity >= ECHO_GUARD;
+}
+
+function renderMic() {
+  const open = micIsOpen();
+  $("mic").setAttribute("aria-pressed", String(open));
+  $("mic").firstChild.textContent = open ? "Stop listening " : "Listen ";
+  $("mic").title = listening && !open ? "Listening is on and resumes when the app stops talking. Press to stop talking and listen now." : "";
+}
+
 function setListening(on) {
   listening = on;
   micFailures = 0;
-  $("mic").setAttribute("aria-pressed", String(on));
-  $("mic").firstChild.textContent = on ? "Stop listening " : "Listen ";
+  renderMic();
   setStatus(on ? "Listening. Ask a question, or say a command." : "Listening is off.");
   if (!on && recognizer) recognizer.abort();
 }
@@ -697,11 +725,19 @@ if (!Recognition) {
   $("mic").disabled = true;
   $("mic").title = "Speech recognition is not supported in this browser (use Chrome or Edge). Type instead.";
 } else {
-  $("mic").addEventListener("click", () => (listening ? setListening(false) : enableListening()));
+  $("mic").addEventListener("click", () => {
+    if (thinking || isSpeaking()) {                       // pressed while the app talks: stop talking and listen now
+      stopSpeaking();
+      lastSpeechActivity = performance.now() - ECHO_GUARD + 150;
+      return listening ? renderMic() : enableListening();
+    }
+    listening ? setListening(false) : enableListening();
+  });
 }
 
 // Listen only while the app is quiet, so it does not hear its own voice
 function listenTick() {
+  renderMic();
   if (!listening || recognizer || thinking || isSpeaking()) return;
   if (performance.now() - lastSpeechActivity < ECHO_GUARD) return;
   const startedAt = performance.now();
@@ -712,8 +748,10 @@ function listenTick() {
   r.maxAlternatives = 1;
   r.onresult = (e) => {
     if (lastSpeechActivity > startedAt) return;           // the app started talking: that was its own voice
-    const result = e.results[e.results.length - 1];
-    const text = result[0].transcript;
+    // The whole sentence so far: the recognizer can split one utterance into several results
+    const results = Array.from(e.results);
+    const text = results.map((x) => x[0].transcript.trim()).filter(Boolean).join(" ");
+    const result = results[results.length - 1];
     if (!result.isFinal) { showYouSaid(text + "…"); return setStatus("Hearing: " + text + "…"); }
     micFailures = 0;
     setStatus("Heard: " + text);
@@ -727,7 +765,7 @@ function listenTick() {
   r.onend = () => { if (recognizer === r) recognizer = null; };
   try { r.start(); } catch (err) { recognizer = null; }
 }
-setInterval(listenTick, 300);
+setInterval(listenTick, 100);
 
 // ================================================================ model menu (Gemini online or Qwen on this computer)
 try { const saved = localStorage.getItem("model"); if (saved) $("model").value = saved; } catch (err) { /* storage blocked */ }
@@ -750,12 +788,16 @@ const COLORS = { idle: "#b4b4b4", detect: "#ffc800", hold: "#ffa500", ready: "#0
 function sizeOverlay() {
   const dpr = window.devicePixelRatio || 1;
   const el = uploadView ? still : video;
+  // The overlay sits exactly on the picture (which may be narrower than its frame on a laptop screen)
+  Object.assign(overlay.style, { left: el.offsetLeft + "px", top: el.offsetTop + "px",
+                                 width: el.clientWidth + "px", height: el.clientHeight + "px" });
   overlay.width = Math.round(el.clientWidth * dpr);
   overlay.height = Math.round(el.clientHeight * dpr);
 }
 window.addEventListener("resize", sizeOverlay);
 video.addEventListener("resize", sizeOverlay);
 still.addEventListener("load", sizeOverlay);
+if (window.ResizeObserver) new ResizeObserver(sizeOverlay).observe(document.querySelector(".camera"));   // the picture's space changes with the layout
 
 function rect(ctx, box, W, H, pad = 0) {
   ctx.strokeRect(box[0] * W - pad, box[1] * H - pad, (box[2] - box[0]) * W + 2 * pad, (box[3] - box[1]) * H + 2 * pad);

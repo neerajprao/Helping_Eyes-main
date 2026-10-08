@@ -170,8 +170,8 @@ def press_listen(page):
 # ---------------------------------------------------------------- the scenarios
 def scenario_hearing(page):
     press_listen(page)
-    assert page.js(LABEL) == "Stop listening" and page.js(PRESSED) == "true"
     page.wait(READY)
+    assert page.js(LABEL) == "Stop listening" and page.js(PRESSED) == "true"
     page.js("window.__say('how many tablets', false)")                 # still speaking: shown as it is heard
     assert page.js(STATUS) == "Hearing: how many tablets…"
     assert page.js("window.__asked.length") == 0                       # nothing is sent until the sentence is complete
@@ -179,6 +179,36 @@ def scenario_hearing(page):
     page.wait("window.__asked.length === 1")
     assert page.js("window.__asked[0]") == "stop" and page.js(STATUS).startswith(("Heard: stop", "Answered", "One moment"))
     page.wait("window.__recs.length >= 2 && !window.__recs[window.__recs.length - 1].ended")   # and it listens again
+
+
+def scenario_button_shows_when_the_mic_is_really_on(page):
+    press_listen(page)
+    page.wait(READY)
+    page.js("speechQueue.push({ text: 'talking' })")                   # the app starts talking
+    page.wait(f"{PRESSED} === 'false'")                                 # the button goes off by itself
+    assert page.js(LABEL) == "Listen" and page.js("listening") is True   # listening is still switched on
+    page.js("speechQueue.length = 0; lastSpeechActivity = performance.now()")   # the app finishes talking
+    page.wait(f"{PRESSED} === 'true'")                                  # and the button comes back on by itself
+    page.js("speechQueue.push({ text: 'talking again' })")
+    page.wait(f"{PRESSED} === 'false'")
+    page.js("document.getElementById('mic').click()")                   # pressed while it talks: talking stops, mic opens
+    assert page.js("speechQueue.length") == 0 and page.js("listening") is True
+    page.wait(f"{PRESSED} === 'true'")
+
+
+PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+
+
+def scenario_camera_is_off_while_a_photo_is_shown(page):
+    page.wait("cameraReady === true && !!video.srcObject")
+    stream = "video.srcObject"
+    page.js(f"window.__track = {stream}.getTracks()[0]")
+    page.js(f"showStill('{PIXEL}')")                                    # an uploaded photo is shown
+    assert page.js("window.__track.readyState") == "ended"              # the camera really stopped, not just hidden
+    assert page.js("video.srcObject") is None and page.js("cameraReady") is False
+    page.js("backToCamera()")                                           # back to the camera
+    page.wait("cameraReady === true && !!video.srcObject")
+    assert page.js("video.srcObject.getTracks()[0].readyState") == "live"
 
 
 def scenario_silence_keeps_listening(page):
@@ -253,6 +283,14 @@ def run_scenario(scenario):
 
 def test_it_shows_words_as_they_are_heard_then_sends_the_finished_sentence():
     run_scenario(scenario_hearing)
+
+
+def test_the_listen_button_is_off_while_the_app_talks_and_pressing_it_stops_the_talking():
+    run_scenario(scenario_button_shows_when_the_mic_is_really_on)
+
+
+def test_the_camera_is_switched_off_while_an_uploaded_photo_is_shown():
+    run_scenario(scenario_camera_is_off_while_a_photo_is_shown)
 
 
 def test_silence_just_listens_again():

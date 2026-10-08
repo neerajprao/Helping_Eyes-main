@@ -35,6 +35,14 @@ _SEARCH_LAST = re.compile(r"^(please )?(look (it|that) up|search|google)( (it|th
 _SEARCH_FOR = re.compile(r"^(?:please )?(?:search (?:the web |online |the internet )?for|look up|google) (.+?)[.?!]*$")
 
 
+# Words that make a request possibly mean "search the web" (then the language model decides), and wordings that
+# plainly agree to or refuse the offer "Should I look it up online?"
+_WEB_WORDS = re.compile(r"\b(web|online|internet|google|search|look(ing)? (it|that|this)? ?up|browse|find out|check)\b")
+_AGREES = re.compile(r"^(yes|yeah|yep|yup|yea|sure|ok|okay|alright|please|go ahead|do it|go for it|definitely|absolutely|of course|why not|sounds good|fine)\b"
+                     r"|\b(look (it|that|this) up|search|google|check online|go online|on the (web|internet))\b")
+_REFUSES = re.compile(r"^(no|nope|nah|don't|do not|never mind|nevermind|leave it|skip|forget it|not now|not really)\b")
+
+
 @dataclass
 class Command:
     """name is one of: stop, repeat, book_off, book_on, new_capture, search_last,
@@ -43,10 +51,14 @@ class Command:
     query: str = ""
 
 
-def classify(text: str, offer_pending: bool = False) -> Command:
+def classify(text: str, offer_pending: bool = False, judge=None) -> Command:
     """
     Decide what one request means. offer_pending is True right after the app asked
     "Should I look it up online?": only then do yes / no answer that offer.
+
+    judge(text, offer_pending) -> "yes" | "no" | "search" | "search: <topic>" | "other" is the language model's
+    reading of what was said; it is asked only when the wording is not already clear, so any phrasing that
+    means "look it up online" works, not just the exact ones listed above.
     """
     request = text.strip()
     lower = request.lower()
@@ -56,6 +68,15 @@ def classify(text: str, offer_pending: bool = False) -> Command:
         if _YES.match(lower):
             return Command("yes")
         if _NO.match(lower):
+            return Command("no")
+        if _REFUSES.match(lower):
+            return Command("no")
+        if _AGREES.search(lower):
+            return Command("yes")
+        verdict = _judged(judge, request, True)
+        if verdict == "yes":
+            return Command("yes")
+        if verdict == "no":
             return Command("no")
         # anything else is a new request; the offer is dropped by the caller
     if _STOP.match(lower):
@@ -75,7 +96,22 @@ def classify(text: str, offer_pending: bool = False) -> Command:
         return Command("search_last")
     if wants_read_all(lower):
         return Command("read_all")
+    if _WEB_WORDS.search(lower):
+        verdict = _judged(judge, request, False)
+        if verdict.startswith("search"):
+            topic = verdict.partition(":")[2].strip()
+            return Command("search_for", topic) if topic else Command("search_last")
     return Command("question", request)
+
+
+def _judged(judge, text: str, offer_pending: bool) -> str:
+    """The language model's reading of the request ("other" when there is no judge or it fails)."""
+    if judge is None:
+        return "other"
+    try:
+        return (judge(text, offer_pending) or "other").strip().lower()
+    except Exception:
+        return "other"
 
 
 # ---------------------------------------------------------------- spoken voice (text to speech)

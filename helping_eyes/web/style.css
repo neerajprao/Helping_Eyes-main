@@ -26,6 +26,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -51,7 +52,7 @@ footer { font-size: 0.9rem; padding-bottom: 32px; }
 .camera { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
 video, #still { display: block; width: 100%; height: auto; }
 video[hidden], #still[hidden] { display: none; }
-#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 .camera-message { color: #fff; padding: 24px; margin: 0; }
 
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
@@ -109,13 +110,34 @@ pre { white-space: pre-wrap; font: inherit; font-size: 0.95rem; max-height: 260p
 
 .you-said { margin: 0 0 .75rem; padding: .6rem .8rem; border-left: 4px solid var(--primary); background: var(--bg); color: var(--text); border-radius: 6px; font-weight: 600; overflow-wrap: anywhere; }
 
-/* Wide screens: the camera stays in view on the left; ask and answer sit beside it on the right */
-@media (min-width: 1000px) {
-  header, main, footer { max-width: 1400px; }
-  main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); column-gap: 20px; align-items: start; }
-  main > section:nth-child(1) { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: 0; }
+/* Laptop screens: everything fits in the window, nothing scrolls. The camera takes the left half and
+   shrinks to the height that is left; the answer area scrolls inside its own box if it gets long. */
+@media (min-width: 1000px) and (min-height: 560px) {
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; font-size: 16px; line-height: 1.4; }
+  header, main, footer { max-width: 1500px; width: 100%; }
+  header { display: flex; align-items: baseline; gap: 16px; }
+  header h1 { margin: 10px 0 6px; font-size: 1.4rem; }
+  .tagline { display: none; }
+  footer { font-size: 0.75rem; padding-bottom: 6px; }
+  footer p { margin: 0; }
+  main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+         grid-template-rows: auto minmax(0, 1fr); column-gap: 16px; }
+  main > section:nth-child(1) { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; min-height: 0; }
   main > section:nth-child(2) { grid-column: 2; grid-row: 1; }
-  main > section:nth-child(3) { grid-column: 2; grid-row: 2; }
+  main > section:nth-child(3) { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; min-height: 0; }
+  .card { margin: 0 0 10px; padding: 12px; }
+  .card h2 { margin-bottom: 8px; font-size: 1.05rem; }
+  .row { margin-top: 8px; gap: 8px; }
+  button, .button { min-height: 38px; padding: 4px 14px; }
+  input[type="text"] { min-height: 38px; }
+  .toggle input { width: 18px; height: 18px; }
+  .camera { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; align-items: center; }
+  .camera video, .camera #still { width: auto; height: auto; max-width: 100%; max-height: 100%; }
+  pre { max-height: 90px; }
+  .hint { display: none; }
+  #answer { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .you-said { margin-bottom: .4rem; padding: .4rem .6rem; }
 }
 
 select { font: inherit; padding: 6px 10px; border-radius: 6px; }

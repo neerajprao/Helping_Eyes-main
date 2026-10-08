@@ -78,7 +78,8 @@ The picture shows the life cycle of one request, from input to output. The diagr
 ```mermaid
 flowchart TB
     subgraph BR["Browser (web/app.js): camera, microphone, speaker, overlay"]
-        CAM[Camera]
+        CAM[Camera or uploaded photo]
+        MODEL[Model menu<br/>Gemini or Qwen 3B]
         MIC[Voice or typed request]
         OUT[Speech out and overlay<br/>guide box, page layout, highlighted word]
     end
@@ -86,6 +87,7 @@ flowchart TB
     subgraph SV["Server (server.py)"]
         WS["/ws/live<br/>preview frames"]
         CAP["/api/capture<br/>one photo"]
+        QLT["/api/quality<br/>uploaded photo: sharpness, light, glare"]
         BK["/api/book/page<br/>one book view"]
         ASK["/api/ask<br/>one request"]
         CMD["commands.py<br/>command or question?"]
@@ -102,10 +104,14 @@ flowchart TB
 
     VOICE["commands.py /api/tts<br/>Edge neural voice<br/>(browser voice if it fails)"]
     LLM[Language model API<br/>Gemini Flash-Lite by default]
+    QWEN[Qwen 3B on this Mac<br/>through Ollama]
     WEB[DuckDuckGo<br/>only with consent]
 
     CAM --> WS
     CAM --> CAP
+    CAM --> QLT
+    QLT --> QUAL
+    MODEL --> ASK
     CAM --> BK
     MIC --> ASK
 
@@ -122,7 +128,9 @@ flowchart TB
     CAP -- text --> DA
     ASK --> CMD
     CMD --> DA
+    CMD -- unclear wording --> DA
     DA --> LLM
+    DA -- if Qwen is chosen --> QWEN
     DA -- after you agree --> WEB
     DA -- each sentence --> VOICE
 
@@ -144,8 +152,8 @@ flowchart TB
 | User guidance | `vision.py`, part D (`LiveGuide`) | Spoken positioning hints, blur / glare coaching ("Low light" is said at most once every 30 s), then a short hold-still countdown and automatic capture |
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
-| Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own |
-| Understanding | Language model API (Gemini Flash-Lite by default; `assistant.py`) | Reads requested parts or answers questions using only the captured text |
+| Request routing | `commands.py` | Decides whether a request is a command (stop, next, book mode, yes / no, search) or a question; the browser has no command logic of its own. Clear wordings are matched directly; unclear ones that mention the web, searching or looking up (or that answer the "look it up online?" offer) are read by the chosen language model, so any wording that means "look it up" works |
+| Understanding | Language model API (Gemini Flash-Lite by default, or Qwen 2.5 3B on this Mac through Ollama, chosen in the page's Model menu; `assistant.py`) | Reads requested parts or answers questions using only the captured text |
 | Expiry checks | `assistant.py` | Expiry dates are compared with the current date in code, not by the model |
 | Web lookup | DuckDuckGo (`ddgs`) and the language model | Used only with the user's consent; answers are prefixed with "According to the web" |
 | Image quality | OpenCV layer (`vision.py`, part B) | Blur, glare and exposure scoring with spoken coaching; page detection and homography flattening; curved-line dewarping; shadow removal and CLAHE when quality is low |
@@ -163,7 +171,7 @@ Helping_Eyes-main/
 │   ├── vision.py           # All the computer vision in four parts: A reading text (OCR), B image quality, C book mode, D live guidance
 │   ├── commands.py         # What a spoken or typed request means
 │   ├── assistant.py    # Question answering through a language model API, expiry checks, web lookup
-│   ├── web/                # The page: index.html, app.js (camera, speech, overlay), style.css
+│   ├── web/                # The page: index.html, app.js (camera, uploads, speech, overlay), style.css (fits a laptop screen with no scrolling)
 │   ├── tests/              # one test file per part of vision.py (ocr, quality, book, live), plus commands, llm, server, run and web_mic
 │   └── .env.example        # Optional settings (copy to .env)
 ├── docs/                   # Diagrams and screenshots used in the docs (make_architecture.py redraws the architecture diagram)
@@ -178,11 +186,11 @@ Helping_Eyes-main/
 
 | File | Main components |
 |---|---|
-| `server.py` | `/ws/live` (preview frames in, guidance and page turns out) · `/api/capture` (photo → text) · `/api/book/page` (book view → what to read, from where, and the page layout) · `/api/ask` (one request → commands, answers, web lookup, streamed as NDJSON) · `/api/tts` (one sentence → MP3 audio, with its own rate limit) · `/api/health` (status, key configured, OCR ready, memory, voice on) · one session per browser (30 min) and a per-client rate limit |
+| `server.py` | `/ws/live` (preview frames in, guidance and page turns out) · `/api/capture` (photo → text) · `/api/quality` (uploaded photo → sharpness, light, glare, text boxes) · `/api/book/page` (book view → what to read, from where, and the page layout) · `/api/ask` (one request → commands, answers, web lookup, streamed as NDJSON) · `/api/tts` (one sentence → MP3 audio, with its own rate limit) · `/api/health` (status, key configured, OCR ready, memory, voice on) · one session per browser (30 min) and a per-client rate limit |
 | `vision.py` | **Part A, reading text (OCR):** `find_text_region()` for live detection · `recognize_text()` for full recognition, including per-word boxes · `read_text_enhanced()` tries corrected versions of a poor frame and keeps the best read · **Part B, image quality and page geometry:** `assess_quality()` (variance of the Laplacian, saturated glare blobs, exposure) · `find_page_quad()` and `warp_page()` (contour, `approxPolyDP`, homography) · `estimate_dewarp()` and `dewarp()` (per-column vertical shift model for curved lines) · `enhance_tone()` (shadow removal, CLAHE) · `binarize()`. Set `VISION_ENHANCE=0` to disable; `BLUR_MIN` tunes the blur threshold · **Part C, book mode:** `PageTurnDetector` (frame differencing state machine) · `split_spread()` (spine detection) · `split_page_parts()` and `parse_page_number()` (header, footer, printed page number, running title) · `xy_cut()` (reading order) · `read_page()` · `continue_from()` (compares a moved view with the page being read) · **Part D, live guidance:** `LiveGuide` (guidance hints, hold-still timing, quality coaching, capture trigger and re-arming) · `BookWatcher` (page turns on the live frames) · `BookReader` (new page, resume from the word reached, keep reading, nothing new) · `speech_chunks()` (page split into paragraphs for tracked speech) |
-| `commands.py` | `classify()` turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question · the voice: `synthesize()` turns one sentence into MP3 with the free Edge neural voice (`edge-tts`), `spoken_form()` spells out numbers above 9999 digit by digit, and a small cache avoids repeating work |
-| `assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
-| `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output (plays the server's audio, prefetches the next sentences, estimates the spoken word for the highlight, falls back to the browser voice) · hands-free speech input with an echo guard, live "Hearing: ..." text and spoken explanations when the microphone or the speech service fails · keyboard shortcuts. It holds no decision logic |
+| `commands.py` | `classify()` (with an optional language-model `judge` for unclear wording) turns a request into stop, repeat, new capture, book mode on / off, yes / no (only while an offer is open), search, read everything or a question · the voice: `synthesize()` turns one sentence into MP3 with the free Edge neural voice (`edge-tts`), `spoken_form()` spells out numbers above 9999 digit by digit, and a small cache avoids repeating work |
+| `assistant.py` | `DocAssistant.set_document()` and `ask()` stream answers sentence by sentence from any OpenAI-compatible chat API (`set_provider()` picks Gemini or the local Qwen 3B per request) · `judge_intent()` reads unclear yes / no / search wording · `ask_web()` searches and answers from the results · `wants_read_all()` detects full read-out requests · `expiry_checks()` determines whether expiry dates have passed · `web_lookup_allowed()` excludes item-specific questions such as expiry, batch and price |
+| `web/app.js` | Camera and frame streaming · overlay (guide box, page layout, reading highlight) · speech output (plays the server's audio, prefetches the next sentences, estimates the spoken word for the highlight, falls back to the browser voice) · hands-free speech input with an echo guard, live "Hearing: ..." text and spoken explanations when the microphone or the speech service fails · uploaded photos (shown in place of the camera with the same overlay, glare marker and book-mode reading highlight; New item returns to the camera) · the Model menu · keyboard shortcuts. It holds no decision logic |
 
 ---
 
@@ -203,7 +211,7 @@ Helping_Eyes-main/
 | Component | Purpose |
 |---|---|
 | `pyobjc-framework-Vision`, `pyobjc-framework-Quartz` | Apple Vision, the text recognition built into macOS: text detection and recognition on the Mac's neural hardware, with per-word boxes. No model download and no API key; the app therefore runs on a Mac only |
-| A language model API | Question answering. Any OpenAI-compatible chat API; Gemini Flash-Lite (free key) by default |
+| A language model API | Question answering. Any OpenAI-compatible chat API; Gemini Flash-Lite (free key) by default, or Qwen 2.5 3B on this Mac through Ollama (no key) |
 | FastAPI and uvicorn | The server and its WebSocket |
 | `edge-tts` | Free Microsoft Edge neural voice for speech out; no account or API key required, but it needs an internet connection |
 | `ddgs` (DuckDuckGo) | Web search, only with the user's consent; no account or API key required |
@@ -318,9 +326,11 @@ for t in tests/test_*.py; do python "$t" || break; done
 | `A` | Read everything | Read the full captured text |
 | `P` | Repeat | Repeat the last answer |
 | `S` | Stop | Stop speaking |
-| `M` | Listen / Stop listening | Turn hands-free listening on or off (the button shows which) |
+| `M` | Listen / Stop listening | Turn hands-free listening on or off. The button shows whether the microphone is open right now: it goes off while the app talks or thinks and turns itself on again when it is quiet. Pressing it while the app talks stops the talking and listens at once |
 
-Upload photo shows the picture where the camera preview is (Back to camera returns to the live view). In book mode the uploaded page is read like a camera page: the same overlay (spine, columns, paragraph order) is drawn on it and the line and word being spoken are highlighted. In normal mode, tick the box beside it for a two-page spread. The photo's sharpness, light and glare are shown on it as on the live view, with a red ring where the glare is (`POST /api/quality`).
+On a laptop-sized window (at least 1000 × 560) the whole page fits the screen without scrolling: the camera takes the left half and shrinks to the height that is left, and the answer scrolls inside its own box. Phones keep the normal scrolling page.
+
+Upload photo shows the picture where the camera preview is (the camera is switched off while the photo is shown; Back to camera, or New item, switches it back on and returns to the live view). In book mode the uploaded page is read like a camera page: the same overlay (spine, columns, paragraph order) is drawn on it and the line and word being spoken are highlighted. In normal mode, tick the box beside it for a two-page spread. The photo's sharpness, light and glare are shown on it as on the live view, with a red ring where the glare is (`POST /api/quality`).
 
 The microphone listens only while the application is silent, so that it does not capture its own voice. Use `S` to interrupt a long answer.
 
@@ -497,7 +507,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | The web lookup is never offered | The offer appears only when the answer is not in the text, and never for expiry, batch or price. Say "look it up" to search directly; the captured text is still checked first, and the web is used only if it cannot answer. |
 | The first answer is slow | Free model tiers can be slow at busy times. Try again, or choose another model with `LLM_MODEL`. |
 | "The server is not responding..." | The app is starting up (the text reader loads in the background and `/api/health` shows `"ocr":"ready"` when done), `run.py` was stopped, or the Mac went to sleep. Restart `run.py`; with `--share` the public address is new each time. |
-| The camera does not start | Allow camera access in the browser (the padlock in the address bar). Another application (FaceTime, Zoom) may be using it. Use `http://localhost` or HTTPS, or the Upload photo fallback. |
+| The camera does not start | Allow camera access in the browser (the padlock in the address bar). Another application (FaceTime, Zoom) may be using it. Use `http://localhost` or HTTPS, or Upload photo. |
 | The wrong camera opens | Choose another camera in the browser's camera settings; on a phone the rear camera is requested. |
 | Stuck on SHOW TEXT HERE | Check that the page is connected (the server log shows the live stream). Move closer and make sure the text is well lit and inside the guide box. |
 | Book mode announces no page number | The number is small or at the very edge of the frame. Move the camera so the whole page, including its top and bottom margins, is in view. |

@@ -98,6 +98,32 @@ def test_synthesize_reports_a_failing_voice_service_and_caches_good_audio():
         commands._speak = original
 
 
+def test_any_wording_that_agrees_to_the_offer_is_a_yes_without_asking_the_model():
+    def never(*_):
+        raise AssertionError("the model should not be asked")
+    for said in ("yes please look that up", "yeah go for it", "why not", "sounds good", "search the web for it",
+                 "can you check that on the internet", "go ahead and google it"):
+        assert classify(said, True, never).name == "yes", said
+    for said in ("no thanks", "nope", "not really", "skip it", "never mind"):
+        assert classify(said, True, never).name == "no", said
+
+
+def test_unclear_wording_is_left_to_the_model():
+    asked = []
+    def judge(text, pending):
+        asked.append((text, pending))
+        return {"hmm i suppose that could help": "yes", "find me ibuprofen side effects online": "search: ibuprofen side effects",
+                "look into the web": "search"}.get(text, "other")
+    assert classify("hmm i suppose that could help", True, judge).name == "yes"
+    cmd = classify("find me ibuprofen side effects online", False, judge)
+    assert (cmd.name, cmd.query) == ("search_for", "ibuprofen side effects")
+    assert classify("look into the web", False, judge).name == "search_last"
+    assert classify("what is the dose", False, judge).name == "question"      # no web wording: the model is not asked
+    assert ("what is the dose", False) not in asked
+    assert classify("what does the web say", False, lambda *_: "other").name == "question"
+    assert classify("find me ibuprofen online", False, lambda *_: 1 / 0).name == "question"   # a failing model changes nothing
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

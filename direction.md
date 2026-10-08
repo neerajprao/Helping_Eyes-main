@@ -11,10 +11,10 @@ What each button on the page does, and what you can say or type.
 | **Book mode** | `B` | Switches between normal mode (one item) and book mode (page by page, reading aloud). Same as saying "book mode" / "normal mode". |
 | **Upload photo** | – | Pick a picture from your device instead of using the camera. It is shown where the camera preview is, with sharpness, light and glare info. In book mode it is read like a camera page, with the reading overlay and highlight. |
 | **Uploaded photo is a two-page spread** | – | Tick it before uploading a photo of two facing pages, in normal mode, so they are split and read in order. |
-| **Back to camera** | – | Appears while an uploaded photo is shown. Returns to the live camera. |
+| **Back to camera** | – | Appears while an uploaded photo is shown (the camera is switched off meanwhile). Switches the camera back on and returns to the live view. |
 | **Model** menu | – | Chooses who answers your questions: Gemini (online) or Qwen 3B (running on this Mac through Ollama). Your choice is remembered. |
 | **Ask** | `Enter` in the box | Sends the question you typed. |
-| **Listen** | `M` | Turns the microphone on or off. While on, it listens whenever the app is quiet and sends what you say. |
+| **Listen** | `M` | Turns the microphone on or off. The button shows when the microphone is really open: it goes off while the app is talking or thinking and turns itself on again when the app is quiet. Press it while the app is talking to stop the talking and listen straight away. |
 | **Read everything** | `A` | Reads all the captured text aloud. Same as saying "read everything". |
 | **Repeat** | `P` | Says the last answer again. |
 | **Stop** | `S` | Stops speaking straight away. |
@@ -40,9 +40,9 @@ Keys work when the cursor is not in the question box.
 - "Normal mode", "exit book mode": back to one item at a time
 
 **Web lookup** (only when you agree)
-- After "The text doesn't say. Should I look it up online?": "yes", "go ahead", "please" or "no", "never mind"
-- "Look it up", "search", "google that": search for your last question
-- "Search the web for …", "look up …", "google …": search for that phrase
+- After "The text doesn't say. Should I look it up online?": any wording that means yes ("yes", "go ahead", "why not", "sounds good", "search the web for it") or no ("no", "not really", "never mind"). Unusual wording is understood by the language model.
+- Any request to search ("look it up", "check that on the internet", "google that", "find out more online") searches for your last question.
+- "Search the web for …", "look up …", "google …", "find me … online": search for that phrase
 
 ## In book mode
 

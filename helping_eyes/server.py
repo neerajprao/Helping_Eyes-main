@@ -373,7 +373,8 @@ def ask(q: Question, request: Request) -> StreamingResponse:
     def events() -> Iterator[str]:
         started = time.time()
         pending, session.pending_search = session.pending_search, ""
-        cmd = classify(request_text, offer_pending=bool(pending))
+        cmd = classify(request_text, offer_pending=bool(pending),
+                       judge=lambda t, p: session.doc.judge_intent(t, p, pending or session.last_question))
 
         if cmd.name == "empty":
             pass
