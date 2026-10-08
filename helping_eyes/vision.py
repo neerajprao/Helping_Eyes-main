@@ -1,5 +1,5 @@
 """
-Everything that works on the camera picture, in four parts (the OCR is RapidOCR; the rest is
+Everything that works on the camera picture, in four parts (the OCR is Apple Vision; the rest is
 classic OpenCV / NumPy with no models):
 
     PART A  Reading text (OCR)
@@ -45,8 +45,8 @@ Box = Tuple[int, int, int, int]  # x1, y1, x2, y2
 ##############################################################################
 # PART A: READING TEXT (OCR)
 #
-# RapidOCR (open-source, ONNX, runs on the CPU of any computer: no platform-specific
-# OCR, no GPU, no API key).
+# Apple Vision (the text recognition built into macOS: runs on this Mac, uses its neural hardware, needs no
+# model download, no API key and sends no picture anywhere). The app therefore runs on a Mac.
 #
 #     recognize_text()      every line of text in an image, optionally with each word's box
 #     find_text_region()    quick check of a live preview frame: is there text, and where?
@@ -62,42 +62,52 @@ class TextLine:
     words: List[Tuple[int, int, Box]] = field(default_factory=list)
 
 
-_rapid = None
+def _vision_box(rect, w: int, h: int) -> Box:
+    """A Vision bounding box (fractions of the image, origin at the bottom left) as a pixel box."""
+    x, y, bw, bh = rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+    return (max(0, int(x * w)), max(0, int((1 - y - bh) * h)), min(w, int((x + bw) * w)), min(h, int((1 - y) * h)))
 
 
-def _quad_to_box(quad, w: int, h: int) -> Box:
-    pts = np.asarray(quad, dtype=float)
-    return (max(0, int(pts[:, 0].min())), max(0, int(pts[:, 1].min())),
-            min(w, int(pts[:, 0].max())), min(h, int(pts[:, 1].max())))
+def recognize_text(image: np.ndarray, word_boxes: bool = False, fast: bool = False) -> List[TextLine]:
+    """Find and read every line of text in a BGR image, top to bottom, with Apple Vision.
+    word_boxes=True also records where each word is. fast=True is Vision's quicker, less careful mode;
+    it is not used by the app because the accurate mode is already quick (about 0.1 s) and finds small text."""
+    import cv2 as _cv2
+    import Foundation
+    import Vision
 
-
-def recognize_text(image: np.ndarray, word_boxes: bool = False) -> List[TextLine]:
-    """Find and read every line of text in a BGR image, top to bottom.
-    word_boxes=True also records where each word is."""
-    global _rapid
-    if _rapid is None:
-        from rapidocr import RapidOCR   # loaded on first use (model load takes a moment)
-        _rapid = RapidOCR()
     h, w = image.shape[:2]
-    result = _rapid(image, return_word_box=word_boxes)
-    if result.boxes is None:
+    ok, png = _cv2.imencode(".png", image)
+    if not ok:
         return []
-    word_results = getattr(result, "word_results", None) or [()] * len(result.txts)
+    data = Foundation.NSData.dataWithBytes_length_(png.tobytes(), len(png))
+    handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(data, None)
+    request = Vision.VNRecognizeTextRequest.alloc().init()
+    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelFast if fast
+                                 else Vision.VNRequestTextRecognitionLevelAccurate)
+    request.setUsesLanguageCorrection_(not fast)
+    request.setRecognitionLanguages_(["en-US"])
+    ok, error = handler.performRequests_error_([request], None)
+    if not ok:
+        logger.error(f"Apple Vision failed: {error}")
+        return []
 
     lines = []
-    for quad, text, score, words in zip(result.boxes, result.txts, result.scores, word_results):
-        text = str(text)
-        line = TextLine(text, float(score), _quad_to_box(quad, w, h))
+    for observation in request.results() or []:
+        candidates = observation.topCandidates_(1)
+        if not candidates:
+            continue
+        candidate = candidates[0]
+        text = str(candidate.string())
+        line = TextLine(text, float(candidate.confidence()), _vision_box(observation.boundingBox(), w, h))
         if word_boxes:
-            # Locate each recognised word in the line text to get its offsets
-            pos = 0
-            for word, _, wquad in words or ():
-                word = str(word)
-                i = text.find(word, pos) if word.strip() else -1
-                if i < 0:
-                    continue
-                line.words.append((i, i + len(word), _quad_to_box(wquad, w, h)))
-                pos = i + len(word)
+            for m in re.finditer(r"\S+", text):
+                # Vision counts characters in UTF-16 units
+                start = len(text[:m.start()].encode("utf-16-le")) // 2
+                length = len(m.group().encode("utf-16-le")) // 2
+                box, _ = candidate.boundingBoxForRange_error_(Foundation.NSMakeRange(start, length), None)
+                if box is not None:
+                    line.words.append((m.start(), m.end(), _vision_box(box.boundingBox(), w, h)))
         lines.append(line)
     lines.sort(key=lambda l: (l.box[1], l.box[0]))
     return lines
@@ -688,13 +698,30 @@ class PageTurnDetector:
         self._last_check = now
         return "changed" if self._is_new_page(frame) else "moved"
 
+    @staticmethod
+    def layout_distance(a: np.ndarray, b: np.ndarray, max_shift: int = 4) -> float:
+        """
+        How different two layout signatures are (0 to 1), after sliding one over the other by up to
+        `max_shift` cells in each direction. A book that shifted or vibrated slightly is the same page
+        in a new position, so the best alignment is what counts; a new page differs at any alignment.
+        """
+        a, b = cv2.GaussianBlur(a, (5, 5), 0), cv2.GaussianBlur(b, (5, 5), 0)    # shifts of a fraction of a cell
+        h, w = a.shape
+        best = 1.0
+        for dy in range(-max_shift, max_shift + 1):
+            for dx in range(-max_shift, max_shift + 1):
+                ys, ye = max(dy, 0), h + min(dy, 0)
+                xs, xe = max(dx, 0), w + min(dx, 0)
+                part_a = a[ys:ye, xs:xe]
+                part_b = b[ys - dy:ye - dy, xs - dx:xe - dx]
+                best = min(best, float(np.mean(cv2.absdiff(part_a, part_b))) / 255.0)
+        return best
+
     def _is_new_page(self, frame: np.ndarray) -> bool:
-        """True (and remembered) when the page layout differs from the last page read."""
+        """True (and remembered) when the page layout differs from the last page read, however it is shifted."""
         sig = self.signature(frame)
-        if self._last_signature is not None:
-            changed = float(np.mean(cv2.absdiff(sig, self._last_signature))) / 255.0
-            if changed < self.change_min:
-                return False             # same page as before
+        if self._last_signature is not None and self.layout_distance(sig, self._last_signature) < self.change_min:
+            return False                 # same page as before, only moved a little
         self._last_signature = sig
         return True
 
@@ -1161,6 +1188,16 @@ def _words(text: str) -> List[Tuple[int, int, str]]:
     return words
 
 
+def word_overlap(old_text: str, new_text: str, min_run: int = 3) -> float:
+    """Share (0 to 1) of the shorter text's words that appear, in runs of at least `min_run`, in the other."""
+    old_words, new_words = _words(old_text), _words(new_text)
+    if not old_words or not new_words:
+        return 0.0
+    matcher = SequenceMatcher(None, [w[2] for w in old_words], [w[2] for w in new_words], autojunk=False)
+    matched = sum(b.size for b in matcher.get_matching_blocks() if b.size >= min_run)
+    return matched / min(len(old_words), len(new_words))
+
+
 def continue_from(old_text: str, old_pos: int, new_text: str,
                   min_run: int = 3, min_overlap: float = 0.4) -> Optional[int]:
     """
@@ -1218,6 +1255,7 @@ MIN_TEXT_HEIGHT = 14       # px on a 720-line preview; smaller text -> "Move clo
 HOLD_TIME = 0.5            # seconds the text must stay steady before capturing
 REARM_AFTER = 1.5          # seconds with no text in view before a new capture is allowed
 QUALITY_PATIENCE = 3.0     # seconds to coach about blur / glare before capturing anyway
+MOVED_SAME_PAGE = 0.12     # book mode: a moved view sharing this much text with the page being read is the same page
 QUALITY_COOLDOWN = 5.0     # seconds between spoken image-quality hints
 HINT_COOLDOWN = 2.0        # seconds before the same position hint is spoken again
 GUIDE_MARGIN_X = 30 / 1280  # the guide box, as fractions of the frame
@@ -1454,6 +1492,13 @@ class BookReader:
 
         if resume is not None and event == "moved" and reading:
             return {"action": "keep"}                       # a hand passed over: keep reading
+
+        # The view only moved (the layout looks the same) and the words are mostly the same, but too garbled
+        # to line up (vibration blur): it is still the same page. Never start it over from the first word.
+        if (resume is None and event == "moved" and self.page_text and
+                (not text.strip() or word_overlap(self.page_text, text) >= MOVED_SAME_PAGE)):
+            logger.info("The view moved but the page is the same: carrying on")
+            return {"action": "keep"}
 
         if resume is not None:
             self.page_text, self.layout = text, layout

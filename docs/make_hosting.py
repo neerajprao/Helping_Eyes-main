@@ -62,7 +62,7 @@ arrow([(1120, 285), (1120, 310)]); arrow([(1120, 375), (1120, 400)])
 # 3. the host builds the container
 panel(30, 520, 1440, 165, "The host builds the container from the Dockerfile (once, when you deploy)", "#f0fdf4")
 steps = [["Start from Python 3.11", "a small base image"], ["Install system libraries", "libgl and libglib for OpenCV"],
-         ["pip install requirements.txt", "the one requirements file"], ["Download the OCR models", "RapidOCR, so start-up is quick"],
+         ["pip install requirements.txt", "the one requirements file"], ["Apple Vision OCR", "built into macOS: nothing to download"],
          ["Copy the app", "the helping_eyes/ folder"]]
 for i, text in enumerate(steps):
     box(55 + i * 280, 575, 250, 80, text, "#fff", GREEN)

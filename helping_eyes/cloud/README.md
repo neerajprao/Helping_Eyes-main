@@ -14,7 +14,7 @@ Point the camera at a label, letter or book page, capture it, then ask about it 
 Answers come only from the captured text; web lookups happen only after you agree and are marked
 "According to the web".
 
-- OCR: RapidOCR (CPU) · language model: Gemini Flash-Lite through an OpenAI-compatible API (set the `LLM_API_KEY` secret) · web search: DuckDuckGo
+- OCR: Apple Vision (macOS only, so this container recipe no longer works on Linux hosts) · language model: Gemini Flash-Lite through an OpenAI-compatible API (set the `LLM_API_KEY` secret) · web search: DuckDuckGo
 - Speech recognition and speech output run in the browser (Chrome or Edge recommended).
 - Live spoken guidance, automatic capture and a book mode that reads page by page and highlights the word being read.
 - Source code: see the project repository. The same app runs on a laptop.

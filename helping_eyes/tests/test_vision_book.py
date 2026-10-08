@@ -251,6 +251,18 @@ class Feed:
                 self.events.append(event)
 
 
+def test_a_page_that_shifts_slightly_is_not_a_new_page():
+    feed = Feed()
+    feed.show(page_a(), 3)
+    assert feed.events == ["changed"]
+    shifted = np.roll(np.roll(page_a(), 9, axis=1), 6, axis=0)       # the book slid a little (vibration, a nudge)
+    feed.show(page_a(), 1)
+    feed.show(shifted, 3)
+    feed.show(page_a(), 1)
+    feed.show(shifted, 4)
+    assert "changed" not in feed.events[1:]                          # never mistaken for a new page
+
+
 def test_first_steady_page_is_read_once():
     feed = Feed()
     feed.show(page_a(), 3)

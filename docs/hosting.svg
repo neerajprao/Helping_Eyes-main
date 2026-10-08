@@ -45,8 +45,8 @@
 <text x="740.0" y="630.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">the one requirements file</text>
 <path d="M585,615 L615,615" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
 <rect x="895" y="575" width="250" height="80" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
-<text x="1020.0" y="610.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Download the OCR models</text>
-<text x="1020.0" y="630.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">RapidOCR, so start-up is quick</text>
+<text x="1020.0" y="610.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Apple Vision OCR</text>
+<text x="1020.0" y="630.0" text-anchor="middle" font-size="13" font-weight="400" fill="#111827">built into macOS: nothing to download</text>
 <path d="M865,615 L895,615" fill="none" stroke="#374151" stroke-width="1.8" marker-end="url(#a)"/>
 <rect x="1175" y="575" width="250" height="80" rx="8" fill="#fff" stroke="#15803d" stroke-width="1.5"/>
 <text x="1300.0" y="610.0" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">Copy the app</text>

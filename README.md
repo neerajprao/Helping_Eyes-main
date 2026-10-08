@@ -53,7 +53,7 @@ Core capabilities:
 - **Optional web lookup:** when the text does not contain the answer, the application offers to search online and does so only with the user's consent. The captured text is always checked first, and web answers give only what was asked.
 - **Book reading mode:** a custom computer vision pipeline detects page turns, separates two-page spreads, recognises printed page numbers and running titles on any page, orders columns and paragraphs, and highlights the exact word being read on screen.
 
-Text recognition (RapidOCR) and layout analysis run on the server, which can be your own laptop. Only the captured text (never the picture) is sent to the language model, and only the search words are sent for a web lookup. Speech recognition uses the browser's speech service.
+Text recognition (Apple Vision) and layout analysis run on the server, which is your own Mac. Only the captured text (never the picture) is sent to the language model, and only the search words are sent for a web lookup. Speech recognition uses the browser's speech service.
 
 ---
 
@@ -93,7 +93,7 @@ flowchart TB
             LIVE["Part D: live guidance<br/>hints, hold still, capture, page turns"]
             BOOKM["Part C: book mode<br/>spine, page numbers, reading order,<br/>resume after the view moves"]
             QUAL["Part B: image quality and page geometry<br/>blur / glare, flatten, dewarp, shadows"]
-            OCRP["Part A: reading text (OCR)<br/>RapidOCR"]
+            OCRP["Part A: reading text (OCR)<br/>Apple Vision"]
         end
 
         DA["assistant.py<br/>answers only from the captured text,<br/>expiry checked in code"]
@@ -137,7 +137,7 @@ flowchart TB
 | Stage | Component | Description |
 |---|---|---|
 | Image acquisition | Browser camera (`getUserMedia`) | Rear camera at up to 1080p; small preview frames go to the server over a WebSocket, the full-size photo only when capturing |
-| Text detection | RapidOCR, quick check (`vision.py`, part A) | Locates every line of text in each preview frame |
+| Text detection | Apple Vision (`vision.py`, part A) | Locates every line of text in each preview frame |
 | User guidance | `vision.py`, part D (`LiveGuide`) | Spoken positioning hints, blur / glare coaching, then a short hold-still countdown and automatic capture |
 | Capture | OCR engine, accurate mode | Recognises all text once and stores it; nothing is read aloud yet |
 | Voice input | Browser `SpeechRecognition` | Converts spoken requests to text, hands-free; the page also accepts typed requests |
@@ -199,7 +199,7 @@ Helping_Eyes-main/
 
 | Component | Purpose |
 |---|---|
-| RapidOCR (ONNX Runtime, CPU) | Text detection and recognition on any platform |
+| `pyobjc-framework-Vision`, `pyobjc-framework-Quartz` | Apple Vision, the text recognition built into macOS: text detection and recognition on the Mac's neural hardware, with per-word boxes. No model download and no API key; the app therefore runs on a Mac only |
 | A language model API | Question answering. Any OpenAI-compatible chat API; Gemini Flash-Lite (free key) by default |
 | FastAPI and uvicorn | The server and its WebSocket |
 | `edge-tts` | Free Microsoft Edge neural voice for speech out; no account or API key required, but it needs an internet connection |
@@ -233,7 +233,7 @@ To use another provider, change `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` (f
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 2. Python dependencies (RapidOCR downloads its small models on first use)
+# 2. Python dependencies (Apple Vision is part of macOS; nothing else to download)
 python -m pip install -r requirements.txt
 
 # 3. Your language model key
@@ -358,6 +358,7 @@ flowchart LR
 - The detector **learns the camera's noise floor** (a running average of motion while the scene is still) and sets its movement and stillness thresholds relative to it, making it robust across cameras and lighting conditions.
 - A state machine (`TURNING` → `SETTLING` → `STEADY`) reports an event once the view has been still for 0.8 s after movement.
 - **Layout fingerprint:** an 80×45 binary image of the page layout (adaptive threshold with horizontal dilation, so that each text line forms a band) distinguishes a clearly different layout (`changed`) from the same layout after movement (`moved`). Because dense book pages have almost identical layouts, a `moved` event is still checked against the page's words and printed page number (section 5) rather than being ignored.
+- **Vibration and nudges:** the fingerprints are compared after sliding one over the other by up to 4 cells (and a light blur), so a book that shifted or vibrated slightly is still the same page; a different page differs at every alignment (measured: 0.01 for a shifted page, 0.28 for a different one, against a threshold of 0.06). When the layout looks the same (`moved`) but the OCR words are too garbled to line up (a blurred frame), `BookReader` still keeps reading (`MOVED_SAME_PAGE`) and never restarts the page from the first word.
 
 ### 2. Two-page spread splitting: spine detection
 
@@ -415,7 +416,7 @@ If the camera or the book moves, the new view is compared with the page being re
 | View moved mid-read (camera shifted 320 px; top lines left, new lines entered) | Reading continued from the exact word reached, with no new-page announcement; the newly visible lines were then read |
 | Different page after reading | Detected as a new page and read from the beginning |
 | Processing time | Page-turn detector 0.2 ms per frame; spine and layout analysis 8 ms; full page including recognition and word boxes about 0.4–0.9 s |
-| Automated tests | 101 tests: reading text (8, real RapidOCR on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (11), server endpoints and WebSocket with real OCR (9), `run.py` (8: helpers, a real start, port fallback, Ctrl+C stop), the page's listening in headless Chrome with a fake speech engine (7: live words, silence, service down, no or blocked microphone, repeated errors, switching off; skipped without Chrome) |
+| Automated tests | 101 tests: reading text (8, real Apple Vision on rendered text), image quality and page geometry (10), book mode (27: page numbers, header and footer, reading order, spine, page turns, resuming), live guidance and book-page decisions (16), commands (5), language-model client against a fake provider (11), server endpoints and WebSocket with real OCR (9), `run.py` (8: helpers, a real start, port fallback, Ctrl+C stop), the page's listening in headless Chrome with a fake speech engine (7: live words, silence, service down, no or blocked microphone, repeated errors, switching off; skipped without Chrome) |
 | End to end in Chrome, fake camera filming a medicine label | Guidance, automatic capture (0.6 s), "read everything" and the expiry answer worked; in book mode with a looping two-page video, page turns were detected, announced and read (each page request 0.24–0.41 s). The language model itself was tested against a fake provider, not the real Gemini service |
 
 The principal benefits of book mode are hands-free page turning, identification of the printed page number and title on any page, correct handling of two-page spreads and headers, paragraph structure, and the reading position highlight.
@@ -424,7 +425,7 @@ The principal benefits of book mode are hands-free page turning, identification 
 
 ## Performance
 
-Measured on an Apple Silicon laptop running the app locally (RapidOCR on the CPU; the model API was not measured because no key was available):
+Measured on an Apple Silicon laptop running the app locally (measured with the earlier RapidOCR reader on the CPU, before the move to Apple Vision; the model API was not measured because no key was available):
 
 | Operation | Time |
 |---|---|
@@ -481,7 +482,7 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 
 3. A. Sharma, A. Srivastava, and A. Vashishth, "An Assistive Reading System for Visually Impaired using OCR and TTS," *International Journal of Computer Applications*, vol. 95, no. 2, pp. 13–18, Jun. 2014. doi: 10.5120/16566-6231
 
-4. RapidOCR, open-source OCR toolkit (PaddleOCR models on ONNX Runtime). https://github.com/RapidAI/RapidOCR
+4. Apple Vision, `VNRecognizeTextRequest`. https://developer.apple.com/documentation/vision/vnrecognizetextrequest
 
 ---
 
@@ -506,5 +507,5 @@ A custom OpenCV pipeline detects page turns, splits two-page spreads, orders col
 | A new item is not captured | Move the previous item out of view briefly, press **New item**, or say "next". |
 | Nothing happens when I speak | Press **Listen** and allow the microphone when the browser asks. Watch the status line: it should show "Hearing: ..." as you talk. If it shows a message instead, it explains the cause and listening is switched off: "could not reach its speech service" means the browser's speech recognition is offline or blocked (it needs internet and does not work in some browsers, for example Brave); "No microphone was found" or "access was denied" is fixed in the browser's site settings (the icon in the address bar). Type your question meanwhile. |
 | A spoken question is not recognised | Use Chrome or Edge, speak after the application has stopped talking (the microphone is off while it speaks), and speak clearly at normal speed. |
-| Text is read in the wrong language | The default RapidOCR models are built for English and Chinese text; other languages need a different recognition model (see the RapidOCR documentation). |
+| Text is read in the wrong language | Apple Vision is asked for English (`setRecognitionLanguages_(["en-US"])` in `recognize_text()`); change the language list there for other languages. |
 | No speech output | Check the browser's audio and the system voices; the page needs one interaction (a click or key press) before some browsers allow speech. |

@@ -37,7 +37,7 @@ APP_DIR = os.path.join(ROOT, "helping_eyes")
 ENV_FILE = os.path.join(APP_DIR, ".env")
 DEFAULT_PORT = 7860
 REQUIRED = {"fastapi": "fastapi", "uvicorn": "uvicorn", "multipart": "python-multipart", "cv2": "opencv-python-headless",
-            "numpy": "numpy", "rapidocr": "rapidocr", "onnxruntime": "onnxruntime", "requests": "requests",
+            "numpy": "numpy", "Vision": "pyobjc-framework-Vision", "requests": "requests",
             "ddgs": "ddgs", "dotenv": "python-dotenv", "edge_tts": "edge-tts"}
 
 
@@ -45,6 +45,8 @@ REQUIRED = {"fastapi": "fastapi", "uvicorn": "uvicorn", "multipart": "python-mul
 def check_python() -> None:
     if sys.version_info < (3, 11):
         sys.exit(f"Helping Eyes needs Python 3.11 or later; this is {sys.version.split()[0]}.")
+    if sys.platform != "darwin":
+        sys.exit("Helping Eyes reads text with Apple Vision, which is part of macOS, so it runs on a Mac only.")
 
 
 def missing_packages() -> list:

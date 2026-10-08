@@ -1,5 +1,5 @@
 """
-Tests for vision.py part A (reading text) with the real RapidOCR on rendered text
+Tests for vision.py part A (reading text) with the real Apple Vision on rendered text
 (no camera, key or language model needed):
 
     python tests/test_vision_ocr.py        (or: python -m pytest tests/test_vision_ocr.py)

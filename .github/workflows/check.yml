@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   helping-eyes:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,6 +15,6 @@ jobs:
       - name: Compile everything
         working-directory: helping_eyes
         run: python -m py_compile server.py commands.py vision.py assistant.py ../run.py
-      - name: Run every test (the OCR, book mode and server tests use RapidOCR; none needs a key or a model)
+      - name: Run every test (the OCR, book mode and server tests use Apple Vision; none needs a key or a model)
         working-directory: helping_eyes
         run: for t in tests/test_*.py; do python "$t" || exit 1; done

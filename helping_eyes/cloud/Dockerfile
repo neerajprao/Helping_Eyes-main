@@ -20,7 +20,8 @@ COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Download the OCR models at build time, so the app starts quickly
-RUN python -c "from rapidocr import RapidOCR; RapidOCR()"
+# NOTE: the app now reads text with Apple Vision (macOS only), so this image cannot run it on Linux.
+# The line that downloaded the RapidOCR models is gone. Host the app from your Mac instead (python run.py --share).
 
 COPY --chown=user helping_eyes ./helping_eyes
 WORKDIR /home/user/app/helping_eyes

@@ -65,6 +65,8 @@ You set these on the host's settings page, not in the code:
 
 ## Step by step
 
+> **Important:** the app now reads text with Apple Vision, which exists only on macOS. Options A and B below (Render, Hugging Face) run Linux containers and **can no longer run the app**. Use Option C: host it from your Mac.
+
 ### Option A: Render (free web service)
 
 1. Get your free key from Google AI Studio.

@@ -1,5 +1,5 @@
 """
-Tests for server.py through its real HTTP and WebSocket interface. RapidOCR reads
+Tests for server.py through its real HTTP and WebSocket interface. Apple Vision reads
 a rendered label; the language model is not needed (every request below is
 answered by the application itself):
 

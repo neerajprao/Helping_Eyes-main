@@ -180,6 +180,20 @@ def test_book_new_page_then_same_page_then_next_page():
         vision.read_page = original
 
 
+def test_a_vibrating_view_never_restarts_the_page():
+    garbled = "The river was qiet thot mornin Nobdy cme dwn t th wtr"          # OCR of a blurred frame: too different to line up
+    reader, original = reader_showing([fake_page(PAGE_A), fake_page(garbled), fake_page("")])
+    doc = DocAssistant()
+    try:
+        assert reader.process(FRAME, "changed", 0, False, False, doc)["action"] == "new"
+        # the layout looks the same (a "moved" view) but the words are garbled: still this page
+        assert reader.process(FRAME, "moved", 10, False, False, doc)["action"] == "keep"
+        assert reader.process(FRAME, "moved", 10, False, False, doc)["action"] == "keep"      # even unreadable
+        assert doc.document == PAGE_A
+    finally:
+        vision.read_page = original
+
+
 def test_book_view_moved_continues_from_the_word_reached():
     reader, original = reader_showing([fake_page(PAGE_A), fake_page(PAGE_A)])
     doc = DocAssistant()
