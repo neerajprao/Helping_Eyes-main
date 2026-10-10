@@ -248,6 +248,137 @@ def test_book_no_text():
         vision.read_page = original
 
 
+# ---------------------------------------------------------------- paragraphs by the language model
+ROWS = [  # a sentence that runs from the bottom of the left column to the top of the right one
+    ("The river was quiet that morning and nobody", 50, 100, 400, 120, 0),
+    ("came down to the water until the", 50, 130, 400, 150, 0),
+    ("bells rang.", 50, 160, 200, 180, 0),            # [short]
+    ("Later that day the rain began", 450, 100, 800, 120, 0),
+    ("and the streets filled slowly.", 450, 130, 800, 150, 0),
+]
+
+
+def page_of_lines(rows=ROWS):
+    """A PageLayout the way read_page builds it, with every line its own paragraph (as the heuristics wrongly did)."""
+    text, lines, paragraphs = "", [], []
+    for t, x1, y1, x2, y2, page in rows:
+        if text:
+            text += "\n\n"
+        start = len(text)
+        text += t
+        words, at = [], 0
+        for w in t.split():
+            a = t.index(w, at)
+            words.append((start + a, start + a + len(w), (x1 + a * 8, y1, x1 + (a + len(w)) * 8, y2)))
+            at = a + len(w)
+        lines.append(vision.LineSpan(start, len(text), (x1, y1, x2, y2), words, text=t, page=page))
+        paragraphs.append((start, len(text)))
+    return text, PageLayout(lines=lines, paragraphs=paragraphs)
+
+
+class ArrangingDoc(DocAssistant):
+    """A DocAssistant whose model answers with a fixed plan (None: the model is unavailable)."""
+    def __init__(self, plan):
+        super().__init__()
+        self.plan, self.asked = plan, []
+
+    def arrange_lines(self, numbered, count):
+        self.asked.append(numbered)
+        return self.plan
+
+
+def test_regroup_joins_a_sentence_that_runs_over_lines_and_keeps_every_word_findable():
+    text, layout = page_of_lines()
+    new_text, new = vision.regroup(layout, [[0, 1, 2], [3, 4]], [])
+    assert new_text == ("The river was quiet that morning and nobody came down to the water until the bells rang."
+                        "\n\nLater that day the rain began and the streets filled slowly.")
+    assert [new_text[a:b] for a, b in new.paragraphs] == new_text.split("\n\n")
+    assert len(layout.paragraphs) == 5                                    # the given layout is not touched
+    for span in new.lines:                                                # every line and word still points at its own text
+        assert new_text[span.start:span.end] == span.text
+        assert [new_text[a:b] for a, b, _ in span.words] == span.text.split()
+    assert len(new.blocks) == 2 and new.blocks[0][0] == 50 and new.blocks[0][3] == 180
+
+
+def test_regroup_leaves_out_skipped_lines_and_joins_hyphenated_words():
+    rows = [("The lighthouse keeper was exam-", 50, 100, 400, 120, 0), ("ple enough for anyone.", 50, 130, 300, 150, 0),
+            ("47", 200, 600, 220, 620, 0)]
+    _, layout = page_of_lines(rows)
+    new_text, new = vision.regroup(layout, [[0, 1]], [2])
+    assert new_text == "The lighthouse keeper was example enough for anyone." and len(new.lines) == 2
+
+
+def test_line_hints_mark_columns_gaps_indents_and_short_lines():
+    _, layout = page_of_lines()
+    hints = vision.line_hints(layout)
+    assert "short" in hints[2] and "column" in hints[3] and hints[1] == ""
+
+
+SIDEBAR_ROWS = [  # main text with a sidebar beside it, the rows level with each other (so the reading order alternates)
+    ("The river was quiet that morning and nobody", 50, 100, 400, 120, 0),
+    ("Suddenly remembering", 450, 100, 560, 115, 0),
+    ("came down to the water until the", 50, 130, 400, 150, 0),
+    ("something you pick up", 450, 128, 560, 143, 0),
+    ("bells rang over the roofs of the town.", 50, 160, 400, 180, 0),
+    ("the book you threw", 450, 156, 560, 171, 0),
+]
+
+
+def test_a_sidebar_beside_the_main_text_is_its_own_block_even_when_the_rows_alternate():
+    _, layout = page_of_lines(SIDEBAR_ROWS)
+    assert vision.line_blocks(layout) == [0, 1, 0, 1, 0, 1]
+    shown = vision.numbered_lines(layout).splitlines()
+    assert shown[0] == "Block 1:" and shown[1].startswith("0 ") and shown[2].startswith("2 ") and shown[4] == "Block 2:"
+    assert shown[5].startswith("1 ") and "x78-100" in shown[5] and "h0.9" in shown[5]   # where it is, and how big its letters are
+
+
+def test_regroup_follows_the_models_order_and_reads_a_sidebar_after_the_main_text():
+    _, layout = page_of_lines(SIDEBAR_ROWS)
+    text, new = vision.regroup(layout, [[0, 2, 4], [1, 3, 5]], [])
+    assert text.split("\n\n")[0].startswith("The river") and text.split("\n\n")[1] == "Suddenly remembering something you pick up the book you threw"
+    for span in new.lines:
+        assert text[span.start:span.end] == span.text
+
+
+def test_book_page_is_read_with_the_models_paragraphs():
+    text, layout = page_of_lines()
+    reader, original = reader_showing([(text, layout)])
+    doc = ArrangingDoc(([[0, 1, 2], [3, 4]], []))
+    try:
+        first = reader.process(FRAME, "changed", 0, False, False, doc)
+        assert first["action"] == "new" and len(first["chunks"]) == 2                  # two paragraphs, so one pause between
+        assert first["chunks"][0]["text"].endswith("until the bells rang.")
+        assert doc.document == first["text"] and "0 " in doc.asked[0] and "[column]" in doc.asked[0]
+        assert [first["text"][l["start"]:l["end"]] for l in first["layout"]["lines"]][2] == "bells rang."
+    finally:
+        vision.read_page = original
+
+
+def test_book_page_keeps_the_layout_paragraphs_when_the_model_is_not_available():
+    text, layout = page_of_lines()
+    reader, original = reader_showing([(text, layout)])
+    try:
+        first = reader.process(FRAME, "changed", 0, False, False, ArrangingDoc(None))
+        assert len(first["chunks"]) == 5 and first["text"] == text
+    finally:
+        vision.read_page = original
+
+
+def test_book_view_moved_still_continues_from_the_word_reached_with_the_models_paragraphs():
+    text, layout = page_of_lines()
+    text2, layout2 = page_of_lines()
+    reader, original = reader_showing([(text, layout), (text2, layout2)])
+    doc = ArrangingDoc(([[0, 1, 2], [3, 4]], []))
+    try:
+        reader.process(FRAME, "changed", 0, False, False, doc)
+        pos = doc.document.index("water")
+        resume = reader.process(FRAME, "changed", pos, False, False, doc)
+        assert resume["action"] == "resume" and resume["text"][resume["from_pos"]:].startswith("water")
+        assert len(doc.asked) == 1                                                   # the same page is not sent again
+    finally:
+        vision.read_page = original
+
+
 def test_speech_chunks_split_long_paragraphs_at_sentence_ends():
     text = ("Sentence one is here. " * 40).strip()
     chunks = list(vision.speech_chunks(text, [(0, len(text))], 0, max_len=100))

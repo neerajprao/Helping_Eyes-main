@@ -48,6 +48,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import commands
+import vision
 from commands import classify
 from assistant import LLM_API_KEY, LLM_MODEL, READ_ALL, DocAssistant, web_lookup_allowed
 from vision import (BookReader, BookWatcher, LiveGuide, _norm, _norm_quad, assess_quality, find_text_region, read_page,
@@ -210,6 +211,9 @@ def _warm_up() -> None:
             _warmup["state"] = f"failed: {e}"
             logger.error(f"Warm-up failed: {e}")
     threading.Thread(target=work, daemon=True).start()
+    threading.Thread(target=commands.warm_up, daemon=True).start()      # load the local voice so the first sentence is quick
+    if commands.kokoro_ready():
+        vision.SPEECH_CHUNK_CHARS = commands.KOKORO_PIECE              # a page is voiced in pieces the local voice makes quickly
 
 
 @app.get("/")
@@ -227,7 +231,7 @@ def health() -> dict:
     # No request to the language model here: free API plans count every call
     return {"status": "ok", "model": LLM_MODEL, "llm_configured": bool(LLM_API_KEY),
             "ocr": _warmup["state"], "memory_mb": _memory_mb(), "memory_limit_mb": _memory_limit_mb(),
-            "cpus": os.cpu_count(), "tts": commands.TTS_ENABLED}
+            "cpus": os.cpu_count(), "tts": commands.TTS_ENABLED, "tts_engine": commands.engine()}
 
 
 class Speak(BaseModel):
@@ -250,8 +254,11 @@ def speak(q: Speak, request: Request) -> Response:
     if len(hits) >= TTS_RATE_LIMIT:
         raise HTTPException(429, "Too many speech requests. Please wait a moment.")
     hits.append(now)
+    started = time.time()
     try:
         audio = commands.synthesize(q.text)
+        if time.time() - started > 5:
+            logger.warning(f"TTS was slow: {time.time() - started:.1f} s for {len(q.text)} characters")
     except commands.TtsError as e:
         logger.error(f"TTS failed: {e}")
         raise HTTPException(502, "The voice service failed.")

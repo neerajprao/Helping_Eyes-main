@@ -23,6 +23,7 @@ Stop it with Ctrl+C.
 
 import argparse
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -61,6 +62,57 @@ def missing_packages() -> list:
         except ImportError:
             missing.append(package)
     return missing
+
+
+def voice_line() -> str:
+    """Which voice will speak, in one line for the start-up message (the local Kokoro voice needs its packages and files)."""
+    sys.path.insert(0, APP_DIR)
+    try:
+        import commands
+    except Exception:
+        return "Edge voice"
+    if not commands.TTS_ENABLED:
+        return "the browser's own voice (TTS_ENABLED=0)"
+    if commands.kokoro_ready():
+        return f"Kokoro ({commands.KOKORO_VOICE}), on this computer; the Edge voice is the backup"
+    return "Edge voice (for the better local voice, run:  python run.py --get-voice)"
+
+
+def get_voice() -> None:
+    """Download the Kokoro voice model files once (about 350 MB) and say how to switch the voice on."""
+    import urllib.request
+    sys.path.insert(0, APP_DIR)
+    import commands
+    os.makedirs(commands.KOKORO_DIR, exist_ok=True)
+    for name, url in commands.KOKORO_FILES.items():
+        target = os.path.join(commands.KOKORO_DIR, name)
+        if os.path.exists(target):
+            print(f"  have      {name}")
+            continue
+        print(f"  download  {name} ...", flush=True)
+        part = target + ".part"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response, open(part, "wb") as out:
+                total, done = int(response.headers.get("Content-Length") or 0), 0
+                while True:
+                    block = response.read(1 << 20)
+                    if not block:
+                        break
+                    out.write(block)
+                    done += len(block)
+                    if total:
+                        print(f"\r  download  {name}  {100 * done // total}%", end="", flush=True)
+            os.replace(part, target)
+            print()
+        except Exception as e:
+            if os.path.exists(part):
+                os.remove(part)
+            sys.exit(f"\nCould not download {name}: {e}")
+    missing = [m for m in ("kokoro_onnx", "lameenc") if importlib.util.find_spec(m) is None]
+    if missing:
+        print("  packages  missing: " + ", ".join(missing) + f"\n            install with:  {sys.executable} -m pip install -r requirements.txt")
+    else:
+        print("  done      the local voice is ready; start the app as usual.")
 
 
 def read_setting(wanted: str) -> str:
@@ -306,7 +358,11 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true", help="do not open the page")
     parser.add_argument("--no-ollama", action="store_true", help="do not start Ollama (the local Qwen model)")
     parser.add_argument("--share", action="store_true", help="also give it a public https address (free Cloudflare tunnel)")
+    parser.add_argument("--get-voice", action="store_true", help="download the local Kokoro voice (once, about 350 MB), then stop")
     args = parser.parse_args()
+
+    if args.get_voice:
+        return get_voice()
 
     check_python()
     missing = missing_packages()
@@ -326,6 +382,7 @@ def main() -> None:
     else:
         print(f"  AI model  NO KEY. Add  LLM_API_KEY=...  to {os.path.relpath(ENV_FILE, ROOT)}  to enable answers.")
         print("            (read everything, expiry, page numbers and the live guidance work without it)")
+    print(f"  voice     {voice_line()}")
     ollama = None if args.no_ollama else start_ollama()
     if not args.no_ollama and ollama_running():
         threading.Thread(target=warm_qwen, daemon=True).start()          # the model loads while the rest starts

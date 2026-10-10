@@ -51,3 +51,5 @@ Keys work when the cursor is not in the question box.
 - The page number and running title are announced before the page.
 - The line and word being spoken are highlighted on the picture.
 - Move the book mid-page and it carries on from the word it reached.
+- The voice is Sarah (an American female voice) made on your Mac, so it works without internet. If it is not set up, a free online voice speaks, and the browser's own voice is the last resort.
+- The language model groups the lines of a page into paragraphs before it is read, so a sentence that runs over a line, a column or a page is read without a pause, and a sidebar or box is read after the main text. If the model cannot answer, the page is read as laid out.

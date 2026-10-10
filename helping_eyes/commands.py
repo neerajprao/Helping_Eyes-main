@@ -5,15 +5,22 @@ spoken voice (text to speech).
 classify() turns one request into a Command. The server routes on it (server.py),
 so the browser needs no command logic of its own.
 
-synthesize() turns one sentence into MP3 audio with a free Microsoft Edge neural voice (edge-tts: no
-account, key or card). It is the last section of this file. The page uses the browser's own voice if
-this fails. Settings (environment or .env):
-    TTS_VOICE    voice name (default en-US-JennyNeural, female; also en-US-AriaNeural, en-US-AvaNeural, en-GB-SoniaNeural)
-    TTS_RATE     speaking speed, e.g. +10% or -10% (default +0%)
-    TTS_ENABLED  set to 0 to always use the browser voice
+synthesize() turns one sentence into MP3 audio, on this computer with the Kokoro voice (kokoro-onnx: free, no
+network, see `python run.py --get-voice`), or, when Kokoro is not set up or fails, with a free Microsoft Edge neural
+voice (edge-tts: no account, key or card). It is the last section of this file. The page uses the browser's own
+voice if both fail. Settings (environment or .env):
+    TTS_ENGINE      kokoro (default) or edge; with kokoro, Edge is still the backup
+    KOKORO_VOICE    Kokoro voice name (default af_sarah, American female; also af_heart, af_bella, af_nicole, am_michael, bf_emma)
+    KOKORO_SPEED    speaking speed, 1.0 is normal (default 1.0)
+    KOKORO_MODEL_DIR  where kokoro-v1.0.onnx and voices-v1.0.bin are (default helping_eyes/models)
+    TTS_VOICE       Edge voice name (default en-US-JennyNeural, female; also en-US-AriaNeural, en-US-AvaNeural, en-GB-SoniaNeural)
+    TTS_RATE        Edge speaking speed, e.g. +10% or -10% (default +0%)
+    TTS_ENABLED     set to 0 to always use the browser voice
 """
 
 import asyncio
+import importlib.util
+import logging
 import os
 import re
 import threading
@@ -21,6 +28,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from assistant import wants_read_all
+
+logger = logging.getLogger(__name__)
 
 _STOP = re.compile(r"^(stop|stop (it|talking|speaking|reading)|be quiet|quiet|shut up|cancel)[.!]*$")
 _REPEAT = re.compile(r"^(repeat|repeat that|say (that|it) again|again|pardon|what)[.?!]*$")
@@ -118,6 +127,13 @@ def _judged(judge, text: str, offer_pending: bool) -> str:
 TTS_VOICE = os.getenv("TTS_VOICE", "en-US-JennyNeural")
 TTS_RATE = os.getenv("TTS_RATE", "+0%")
 TTS_ENABLED = os.getenv("TTS_ENABLED", "1") != "0"
+TTS_ENGINE = os.getenv("TTS_ENGINE", "kokoro").strip().lower()
+KOKORO_VOICE = os.getenv("KOKORO_VOICE", "af_sarah")
+KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", "1.0"))
+KOKORO_DIR = os.getenv("KOKORO_MODEL_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+KOKORO_FILES = {"kokoro-v1.0.onnx": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+                "voices-v1.0.bin": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"}
+KOKORO_PIECE = 300              # characters per Kokoro call: about 3 s on a laptop CPU, so the first words come quickly
 MAX_CHARS = 700                 # one sentence or a short chunk; keeps each call quick
 _CACHE_SIZE = 60                # repeated sentences ("Got it...") are not synthesized twice
 
@@ -151,23 +167,131 @@ async def _speak(text: str) -> bytes:
     return bytes(audio)
 
 
+def _pieces(text: str, size: int = MAX_CHARS) -> list:
+    """The text in pieces of at most `size` characters, cut after a sentence end, else a comma, else a space,
+    so that nothing is dropped from a long list or a long sentence."""
+    pieces = []
+    while len(text) > size:
+        cut = 0
+        for marks in ((". ", "? ", "! "), ("; ", ", "), (" ",)):      # best place first
+            found = [text.rfind(m, 0, size) + len(m) for m in marks if text.rfind(m, 0, size) >= 0]
+            if found and max(found) >= size // 3:
+                cut = max(found)
+                break
+        cut = cut or size
+        pieces.append(text[:cut].strip())
+        text = text[cut:].strip()
+    return pieces + [text] if text else pieces
+
+
+def kokoro_ready() -> bool:
+    """Is the local Kokoro voice set up: wanted, its two packages installed and its two model files downloaded?"""
+    return (TTS_ENGINE == "kokoro" and not _kokoro_failed
+            and all(importlib.util.find_spec(m) for m in ("kokoro_onnx", "lameenc"))
+            and all(os.path.exists(os.path.join(KOKORO_DIR, name)) for name in KOKORO_FILES))
+
+
+def engine():
+    """The voice the server uses first: "kokoro" (on this computer), "edge" (Microsoft's service), or None (off)."""
+    if not TTS_ENABLED:
+        return None
+    return "kokoro" if kokoro_ready() else "edge"
+
+
+_kokoro_model = None
+_kokoro_failed = False          # the local voice broke once: the rest of this run uses Edge
+_kokoro_lock = threading.Lock()
+
+
+def _kokoro():
+    global _kokoro_model
+    if _kokoro_model is None:
+        from kokoro_onnx import Kokoro
+        _kokoro_model = Kokoro(os.path.join(KOKORO_DIR, "kokoro-v1.0.onnx"), os.path.join(KOKORO_DIR, "voices-v1.0.bin"))
+    return _kokoro_model
+
+
+def _mp3(samples, rate: int) -> bytes:
+    """Mono audio (floats from -1 to 1) as MP3, which every browser plays."""
+    import lameenc
+    import numpy as np
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(64)
+    encoder.set_in_sample_rate(rate)
+    encoder.set_channels(1)
+    encoder.set_quality(2)
+    pcm = (np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+    return bytes(encoder.encode(pcm) + encoder.flush())
+
+
+def _speak_kokoro(text: str) -> bytes:
+    with _kokoro_lock:                                  # one call at a time: the model already uses every core
+        samples, rate = _kokoro().create(spoken_form(text), voice=KOKORO_VOICE, speed=KOKORO_SPEED, lang="en-us")
+    return _mp3(samples, rate)
+
+
+def warm_up() -> None:
+    """Load the local voice and speak one short phrase, so the first real sentence is not slow."""
+    global _kokoro_failed
+    if TTS_ENABLED and kokoro_ready():
+        try:
+            _speak_kokoro("Ready.")
+            logger.info(f"Voice: Kokoro ({KOKORO_VOICE}) is ready on this computer")
+        except Exception as e:
+            _kokoro_failed = True
+            logger.warning(f"Voice: Kokoro could not start ({type(e).__name__}: {e}); using the Edge voice")
+    elif TTS_ENABLED:
+        logger.info("Voice: the Edge voice (run  python run.py --get-voice  for the local Kokoro voice)")
+
+
 def synthesize(text: str) -> bytes:
-    """MP3 audio of one sentence. Raises TtsError when the voice service cannot be reached."""
-    text = text.strip()[:MAX_CHARS]
+    """MP3 audio of one sentence (a long text is spoken in pieces, joined). Raises TtsError when no voice can speak it."""
+    text = text.strip()
     if not text:
         raise TtsError("empty text")
+    pieces = _pieces(text, KOKORO_PIECE if kokoro_ready() else MAX_CHARS)
+    if len(pieces) > 1:
+        return b"".join(_synthesize_piece(p) for p in pieces)      # MP3 frames can simply follow each other
+    return _synthesize_piece(text)
+
+
+def _synthesize_piece(text: str) -> bytes:
+    """MP3 audio of one piece: the Kokoro voice if it is set up, else (or if it fails) the Edge voice."""
+    global _kokoro_failed
     with _lock:
         if text in _cache:
             _cache.move_to_end(text)
             return _cache[text]
-    try:
-        audio = asyncio.run(asyncio.wait_for(_speak(spoken_form(text)), timeout=30))
-    except Exception as e:                              # no network, service changed, timeout, ...
-        raise TtsError(f"{type(e).__name__}: {e}")
+    audio = b""
+    if kokoro_ready():
+        try:
+            audio = _speak_kokoro(text)
+        except Exception as e:                          # a missing file, a broken install, ...: use Edge from now on
+            _kokoro_failed = True
+            logger.warning(f"Voice: Kokoro failed ({type(e).__name__}: {e}); using the Edge voice")
     if not audio:
-        raise TtsError("the voice service returned no audio")
+        audio = _speak_edge(text)
     with _lock:
         _cache[text] = audio
         while len(_cache) > _CACHE_SIZE:
             _cache.popitem(last=False)
+    return audio
+
+
+def _speak_edge(text: str) -> bytes:
+    """MP3 audio of one piece from the Edge voice service."""
+    # A call to the voice service now and then never answers, so each try gets a short time (about 3 s covers a
+    # 600-character piece) and a hung one is tried again at once instead of waiting half a minute.
+    limit = 4 + len(text) / 100
+    error = None
+    for attempt in range(2):
+        try:
+            audio = asyncio.run(asyncio.wait_for(_speak(spoken_form(text)), timeout=limit))
+            break
+        except Exception as e:                          # no network, service changed, timeout, ...
+            error = e
+    else:
+        raise TtsError(f"{type(error).__name__}: {error}")
+    if not audio:
+        raise TtsError("the voice service returned no audio")
     return audio

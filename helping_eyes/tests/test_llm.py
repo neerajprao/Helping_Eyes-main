@@ -78,6 +78,32 @@ def test_answer_streams_sentence_by_sentence():
     assert body["messages"][-1] == {"role": "user", "content": "how much should I take?"}
 
 
+def test_the_model_arranges_the_lines_of_a_page_into_paragraphs():
+    doc = setup('Sure. {"paragraphs": [[0, 1, 2], [3, 4]], "skip": [5]}')
+    assert doc.arrange_lines("0 a\n1 b\n2 c\n3 d\n4 e\n5 47", 6) == ([[0, 1, 2], [3, 4]], [5])
+    body = Fake.requests[0][1]
+    assert body["messages"][0]["content"] == da.ARRANGE_PROMPT and body["messages"][1]["content"].startswith("0 a")
+
+
+def test_an_arrangement_that_would_lose_or_double_a_line_is_not_used():
+    assert da.parse_arrangement('{"paragraphs": [[0, 1], [2]], "skip": []}', 3) == ([[0, 1], [2]], [])
+    assert da.parse_arrangement('{"paragraphs": [[0, 1]], "skip": []}', 3) is None            # line 2 lost
+    assert da.parse_arrangement('{"paragraphs": [[0, 1], [1, 2]], "skip": []}', 3) is None    # line 1 twice
+    assert da.parse_arrangement('{"paragraphs": [[0], [2]], "skip": [1, 3]}', 3) is None      # no such line
+    assert da.parse_arrangement('{"paragraphs": [[0], [], [1, 2]], "skip": []}', 3) is None    # empty paragraph
+    assert da.parse_arrangement('{"paragraphs": [[0]], "skip": [1, 2, 3, 4, 5, 6, 7, 8]}', 9) is None   # most of the page dropped
+    assert da.parse_arrangement("I cannot do that", 3) is None
+
+
+def test_arranging_fails_quietly_without_a_key_or_when_the_model_fails():
+    doc = setup('{"paragraphs": [[0, 1]], "skip": []}', key="")
+    assert doc.arrange_lines("0 a\n1 b", 2) is None and Fake.requests == []                   # no key: nothing is sent
+    doc = setup("", status=500)
+    assert doc.arrange_lines("0 a\n1 b", 2) is None
+    doc = setup("not json at all")
+    assert doc.arrange_lines("0 a\n1 b", 2) is None
+
+
 def test_conversation_is_remembered():
     doc = setup("Two tablets.")
     list(doc.ask("how many?"))

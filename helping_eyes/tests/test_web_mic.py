@@ -43,6 +43,10 @@ window.fetch = (url, opts) => {
   if (String(url).includes("/api/ask")) window.__asked.push(JSON.parse(opts.body).question);
   if (String(url).includes("/api/tts")) {
     if (window.__ttsDown) return Promise.resolve(new Response("no", { status: 502 }));
+    if (window.__ttsHangFirst) {                        // one request that never answers (until the page gives up on it)
+      window.__ttsHangFirst = false;
+      return new Promise((resolve, reject) => opts.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    }
     window.__spoken.push(JSON.parse(opts.body).text);
     return Promise.resolve(new Response(new Blob(["x"], { type: "audio/mpeg" })));
   }
@@ -274,11 +278,24 @@ def scenario_browser_voice_takes_over_when_the_server_voice_fails(page):
     page.wait("window.__spoken.some((t) => t.endsWith('[browser]'))")  # still spoken, by the browser's voice
 
 
+def scenario_a_hung_voice_request_is_answered_by_a_second_one(page):
+    page.js("window.__ttsHangFirst = true")
+    page.js("document.getElementById('question').value = 'next'; document.getElementById('ask-form').requestSubmit()")
+    # the first request never answers: after a few seconds a second one is sent, and the server voice (not the
+    # browser's) speaks, long before the page's own give-up time
+    page.wait("window.__spoken.length > 0", timeout=8)
+    assert not any(t.endswith("[browser]") for t in page.js("window.__spoken"))
+
+
 def run_scenario(scenario):
     if CHROME is None:
         print(f"SKIP  {scenario.__name__}: Chrome is not installed")
         return
     with_page(scenario)
+
+
+def test_a_voice_request_that_never_answers_is_replaced_by_a_second_one():
+    run_scenario(scenario_a_hung_voice_request_is_answered_by_a_second_one)
 
 
 def test_it_shows_words_as_they_are_heard_then_sends_the_finished_sentence():

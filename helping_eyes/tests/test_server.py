@@ -155,7 +155,8 @@ def test_tts_endpoint_returns_audio_and_reports_failure():
         assert client.post("/api/tts", json={"text": "Hello there."}).status_code == 502
     finally:
         server.commands.synthesize = original
-    assert client.get("/api/health").json()["tts"] is True
+    health = client.get("/api/health").json()
+    assert health["tts"] is True and health["tts_engine"] in ("kokoro", "edge")
 
 
 def test_tts_endpoint_is_rate_limited():

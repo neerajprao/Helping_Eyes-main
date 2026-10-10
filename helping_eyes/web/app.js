@@ -33,10 +33,17 @@ let lastSpeechActivity = 0;   // performance.now() when speech last started or e
 let player = null;            // the <audio> element that is playing now
 let serverVoice = true;       // false after a failure, until serverVoiceRetry
 let serverVoiceRetry = 0;
+let serverVoiceFailures = 0;  // sentences in a row that the server voice could not speak
 const PREFETCH = 3;           // sentences fetched ahead, so the voice does not pause between them
+const START_MS = 10000;       // the server voice must start within this long ...
+const STALL_MS = 6000;        // ... and may then be silent for at most this long before the sentence is skipped
 
 // Does the server have a voice? Known before the first sentence is fetched
-const voiceKnown = fetch("/api/health").then((r) => r.json()).then((h) => { if (h.tts === false) { serverVoice = false; serverVoiceRetry = Infinity; } }).catch(() => {});
+const voiceKnown = fetch("/api/health").then((r) => r.json()).then((h) => {
+  if (h.tts === false) { serverVoice = false; serverVoiceRetry = Infinity; }
+  // The local voice is computer work, not a network call: it takes longer, and a second request would only double the work
+  if (h.tts_engine === "kokoro") { hedgeMs = 15000; giveUpMs = 30000; }
+}).catch(() => {});
 const serverVoiceUsable = () => serverVoice || performance.now() > serverVoiceRetry;
 
 const isSpeaking = () => !!speakingNow || speechQueue.length > 0;
@@ -87,29 +94,55 @@ function speakNext() {
   });
 }
 
+// One request for the audio of a text. A request now and then never answers, so a second one is started when the
+// first is slow (hedgeMs) or has failed, and whichever delivers first wins; everything is given up after giveUpMs.
+let hedgeMs = 3000, giveUpMs = 12000;
+function fetchVoiceBlob(text) {
+  const controllers = [];
+  const request = () => {
+    const c = new AbortController();
+    controllers.push(c);
+    return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ text }), signal: c.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const blob = await res.blob();
+        if (!blob.size) throw new Error("empty audio");
+        return blob;
+      });
+  };
+  const first = request();
+  const second = new Promise((resolve, reject) => {
+    const hedge = setTimeout(() => request().then(resolve, reject), hedgeMs);
+    first.then(() => clearTimeout(hedge), () => { clearTimeout(hedge); request().then(resolve, reject); });
+  });
+  const giveUp = setTimeout(() => controllers.forEach((c) => c.abort()), giveUpMs);
+  return Promise.any([first, second]).finally(() => {
+    clearTimeout(giveUp);
+    controllers.forEach((c) => c.abort());           // the loser, if there is one
+  });
+}
+
 // The server's voice: fetch the audio of one sentence; resolves to an object URL, or null when it cannot
 function fetchAudio(item) {
   if (item.audio) return item.audio;
   item.audio = (async () => {
     await voiceKnown;
     if (!serverVoiceUsable()) return null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      const slow = new AbortController();
-      const giveUp = setTimeout(() => slow.abort(), 15000);
-      try {
-        const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ text: item.text }), signal: slow.signal });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        serverVoice = true;
-        return URL.createObjectURL(await res.blob());
-      } catch (err) {
-        if (attempt === 2) {
-          serverVoice = false;
-          serverVoiceRetry = performance.now() + 60000;     // browser voice for a minute, then try again
-        }
-      } finally {
-        clearTimeout(giveUp);
-      }
+    const fetchStart = performance.now();
+    try {
+      const blob = await fetchVoiceBlob(item.text);
+      console.info(`Voice: ${item.text.length} characters ready in ${Math.round(performance.now() - fetchStart)} ms`);
+      serverVoiceFailures = 0;
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      console.warn("Server voice failed:", err && err.errors ? err.errors.map((e) => e.message).join("; ") : err.message);
+    }
+    // This sentence is spoken by the browser's voice, which is the weaker one. One bad sentence must not move
+    // the rest of the page onto it, so the server voice is given up only after several in a row fail.
+    if (++serverVoiceFailures >= 3) {
+      serverVoice = false;
+      serverVoiceRetry = performance.now() + 20000;      // browser voice for a short while, then try again
     }
     return null;
   })();
@@ -124,21 +157,29 @@ function prefetch() {
 // element is created and unlocked at the first tap or key press, and reused for every sentence (a new element
 // per sentence is blocked on phones, which then fall back to the browser's own weak voice).
 const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+const MOBILE = /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent);
 let voiceEl = null, audioUnlocked = false;
+let soundBlocked = null;      // a sentence waiting for the first tap, because the phone blocked its sound
+// Only some events count as a tap for the phone (a touch's "pointerdown" does not, "touchend" and "click" do),
+// so the unlock is tried again at every one of them until the phone has really allowed sound.
 function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
+  if (audioUnlocked || player) return;
   try {
     if (!voiceEl) voiceEl = new Audio();
     voiceEl.src = SILENT_WAV;
     const started = voiceEl.play();
-    if (started && started.catch) started.catch(() => {});
-    if (synth && /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent)) {       // the browser voice needs the same unlock
+    if (started && started.then) started.then(soundUnlocked, () => {});
+    else soundUnlocked();
+    if (synth && MOBILE) {       // the browser voice needs the same unlock
       const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u);
     }
   } catch (err) { /* nothing to unlock */ }
 }
-["pointerdown", "touchend", "keydown", "click"].forEach((type) => document.addEventListener(type, unlockAudio, { passive: true }));
+function soundUnlocked() {
+  audioUnlocked = true;
+  if (soundBlocked) { const play = soundBlocked; soundBlocked = null; play(); }
+}
+["pointerup", "touchend", "keydown", "click"].forEach((type) => document.addEventListener(type, unlockAudio, { passive: true }));
 
 function playAudio(item, url, finished) {
   item.url = url;
@@ -147,19 +188,65 @@ function playAudio(item, url, finished) {
   player = audio;
   audio.src = url;
   let lastIndex = -1;
-  audio.onplay = () => { if (item.start !== null) speechPos = item.start; };
+  // Never freeze the app if the audio stalls: give up when the sound has not moved for a few seconds. The
+  // timer belongs to this sentence and is cleared when speech is stopped (item.stop), because the audio
+  // element is shared: a leftover timer would otherwise pause the NEXT sentence in the middle.
+  let watchdog = null, kicks = 0;
+  const arm = (ms) => { clearTimeout(watchdog); watchdog = setTimeout(() => stalled(), ms); };
+  // The sound stopped moving without ending. Nudge it twice; if it stays stuck, give up on this sound but do
+  // not skip what is left: the browser's voice says the rest of the piece from where the sound got to.
+  const stalled = () => {
+    if (speakingNow !== item) return;
+    if (audio.ended) return done();
+    const at = audio.duration ? audio.currentTime / audio.duration : 0;
+    console.warn(`Voice stalled at ${Math.round(at * 100)}% of a ${item.text.length}-character piece ` +
+                 `(readyState ${audio.readyState}, paused ${audio.paused}, tab hidden ${document.hidden})`);
+    if (at > 0.97) return done();
+    if (kicks++ < 2) { audio.play().catch(() => {}); arm(STALL_MS); return; }
+    clearTimeout(watchdog);
+    audio.onended = audio.onerror = audio.ontimeupdate = audio.onplay = null;
+    audio.pause();
+    let index = Math.floor(at * item.text.length);
+    while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
+    const rest = { text: item.text.slice(index), el: null, start: item.start === null ? null : item.start + index };
+    setStatus("The voice stalled; the rest is spoken with the browser's voice.");
+    speakWithBrowser(rest, finished);
+    item.stop = () => { if (rest.stop) rest.stop(); item.stop = null; };
+  };
+  const done = () => {
+    clearTimeout(watchdog);
+    item.stop = null;
+    audio.onended = audio.onerror = audio.ontimeupdate = audio.onplay = null;
+    if (speakingNow !== item) return;      // stopped meanwhile: the element is somebody else's now
+    audio.pause();
+    finished();
+  };
+  item.stop = () => { clearTimeout(watchdog); item.stop = null; };
+  audio.onplay = () => { arm(STALL_MS); if (item.start !== null) speechPos = item.start; };
   audio.ontimeupdate = () => {
+    arm(STALL_MS);
     if (!audio.duration) return;
     // The server gives no word times: estimate the word from how far through the audio we are
     let index = Math.min(item.text.length - 1, Math.floor((audio.currentTime / audio.duration) * item.text.length));
     while (index > 0 && !/\s/.test(item.text[index - 1])) index--;
     if (index !== lastIndex) { lastIndex = index; markWord(item, index); }
   };
-  // Never freeze the app if the audio neither plays nor ends
-  const watchdog = setTimeout(() => done(), 8000 + item.text.length * 150);
-  const done = () => { clearTimeout(watchdog); audio.onended = audio.onerror = audio.ontimeupdate = audio.onplay = null; audio.pause(); finished(); };
+  arm(START_MS);                           // the sound has not started yet
   audio.onended = audio.onerror = done;
-  audio.play().catch(() => { clearTimeout(watchdog); item.url = null; URL.revokeObjectURL(url); player = null; speakWithBrowser(item, finished); });
+  audio.play().then(soundUnlocked, (err) => {
+    clearTimeout(watchdog);
+    audio.onended = audio.onerror = audio.ontimeupdate = audio.onplay = null;
+    if (speakingNow !== item) return;
+    if (err && err.name === "NotAllowedError") {
+      // The phone blocks sound until the page has been tapped: keep this sentence and play it at the next tap
+      item.stop = null; player = null;
+      soundBlocked = () => playAudio(item, url, finished);
+      setStatus("Tap the screen once to turn the voice on.");
+      return;
+    }
+    item.stop = null; item.url = null; URL.revokeObjectURL(url); player = null;
+    speakWithBrowser(item, finished);
+  });
 }
 
 // Mark the word at charIndex of the shown sentence, and move the book reading position
@@ -181,11 +268,21 @@ function speakWithBrowser(item, finished) {
   u.lang = "en-US";
   u.rate = 1.0;
   u.onstart = () => { if (item.start !== null) speechPos = item.start; };
-  u.onboundary = (e) => { if (e.name === "word") markWord(item, shownIndex(item.text, u.text, e.charIndex)); };
-  // Some browsers never report the end of an utterance: don't let that freeze the app
-  const watchdog = setTimeout(() => done(), 4000 + u.text.length * 120);
-  const done = () => { clearTimeout(watchdog); finished(); };
+  // Some browsers never report the end of an utterance: don't let that freeze the app. Every word event shows
+  // the voice is alive, so the wait then shrinks to a few seconds.
+  let watchdog = null, keepAlive = null;
+  const arm = (ms) => { clearTimeout(watchdog); watchdog = setTimeout(() => done(), ms); };
+  const done = () => { clearTimeout(watchdog); clearInterval(keepAlive); item.stop = null; finished(); };
+  item.stop = () => { clearTimeout(watchdog); clearInterval(keepAlive); item.stop = null; };
+  u.onboundary = (e) => {
+    arm(8000);
+    if (e.name === "word") markWord(item, shownIndex(item.text, u.text, e.charIndex));
+  };
   u.onend = u.onerror = done;
+  arm(4000 + u.text.length * 120);
+  // Chrome silently stops a long utterance after about 15 seconds; a pause and resume keeps it going
+  keepAlive = setInterval(() => { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } }, 10000);
+  if (synth.paused) synth.resume();
   synth.speak(u);
 }
 
@@ -208,6 +305,8 @@ function shownIndex(shown, spoken, spokenIndex) {
 // Stop talking (and keep any answer that is still arriving)
 function silence() {
   speechQueue.length = 0;
+  soundBlocked = null;
+  if (speakingNow && speakingNow.stop) speakingNow.stop();      // its timers must not fire into the next sentence
   speakingNow = null;
   speechPos = null;
   lastSpeechActivity = performance.now();
@@ -752,9 +851,11 @@ if (!Recognition) {
 }
 
 // Listen only while the app is quiet, so it does not hear its own voice
+let recognizerEndedAt = 0;
 function listenTick() {
   renderMic();
   if (!listening || recognizer || thinking || isSpeaking()) return;
+  if (MOBILE && performance.now() - recognizerEndedAt < 500) return;      // phones fail when the microphone is reopened at once
   if (performance.now() - lastSpeechActivity < ECHO_GUARD) return;
   const startedAt = performance.now();
   const r = new Recognition();
@@ -766,7 +867,16 @@ function listenTick() {
     if (lastSpeechActivity > startedAt) return;           // the app started talking: that was its own voice
     // The whole sentence so far: the recognizer can split one utterance into several results
     const results = Array.from(e.results);
-    const text = results.map((x) => x[0].transcript.trim()).filter(Boolean).join(" ");
+    // Phones repeat the whole phrase so far in every result: a result that starts with the previous one replaces it
+    const parts = [];
+    for (const x of results) {
+      const t = x[0].transcript.trim();
+      if (!t) continue;
+      const last = parts[parts.length - 1];
+      if (last !== undefined && t.toLowerCase().startsWith(last.toLowerCase())) parts[parts.length - 1] = t;
+      else parts.push(t);
+    }
+    const text = parts.join(" ");
     const result = results[results.length - 1];
     if (!result.isFinal) { showYouSaid(text + "…"); return setStatus("Hearing: " + text + "…"); }
     micFailures = 0;
@@ -778,7 +888,7 @@ function listenTick() {
     if (MIC_HELP[e.error]) return micProblem(MIC_HELP[e.error]);
     if (++micFailures >= 3) micProblem("Listening keeps failing (" + e.error + "). Type your question instead.");
   };
-  r.onend = () => { if (recognizer === r) recognizer = null; };
+  r.onend = () => { recognizerEndedAt = performance.now(); if (recognizer === r) recognizer = null; };
   try { r.start(); } catch (err) { recognizer = null; }
 }
 setInterval(listenTick, 100);

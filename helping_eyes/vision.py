@@ -29,7 +29,7 @@ import os
 import re
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import Callable, List, Optional, Tuple
 
@@ -1112,6 +1112,8 @@ class LineSpan:
     words: List[Tuple[int, int, Box]] = field(default_factory=list)  # same, per word
     quad: Optional[Quad] = None                                       # the line's real (slanted) outline
     word_quads: List[Quad] = field(default_factory=list)              # same, per word
+    text: str = ""                                                    # the printed line as read (stripped)
+    page: int = 0                                                     # 0 / 1: left / right page of a spread
 
 
 @dataclass
@@ -1209,7 +1211,7 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
 
     report = assess_quality(frame) if enhance else None
     text = ""
-    for x_start, x_end in pages:
+    for page_no, (x_start, x_end) in enumerate(pages):
         crop = frame[:, x_start:x_end]
         # A slanted page is straightened for the layout analysis (rows, columns, paragraphs); everything found is
         # then mapped back, so the outlines drawn on the screen follow the slant.
@@ -1250,7 +1252,7 @@ def _read_flat_page(frame: np.ndarray, split: bool, enhance: bool) -> Tuple[str,
                 text += t
                 lead = len(line.text) - len(line.text.lstrip())   # strip() shifted the offsets
                 words = [(start + a - lead, start + b - lead, box) for a, b, box in line.words]
-                layout.lines.append(LineSpan(start, len(text), line.box, words, line.quad, line.word_quads))
+                layout.lines.append(LineSpan(start, len(text), line.box, words, line.quad, line.word_quads, t, page_no))
             layout.paragraphs.append((para_start, len(text)))
 
     return text, layout
@@ -1277,7 +1279,8 @@ def _unproject_layout(layout: PageLayout, matrix: np.ndarray, flat_height: int) 
     for l in layout.lines:
         quad = map_quad(l.quad or box_quad(l.box), point)
         wq = [map_quad(q, point) for q in l.word_quads] if l.word_quads else [map_quad(box_quad(b), point) for _, _, b in l.words]
-        spans.append(LineSpan(l.start, l.end, quad_bounds(quad), [(a, b, quad_bounds(q)) for (a, b, _), q in zip(l.words, wq)], quad, wq))
+        spans.append(LineSpan(l.start, l.end, quad_bounds(quad), [(a, b, quad_bounds(q)) for (a, b, _), q in zip(l.words, wq)], quad, wq,
+                              l.text, l.page))
     layout.lines = spans
 
 
@@ -1305,6 +1308,171 @@ def read_page(frame: np.ndarray, split: bool = True, enhance: bool = False) -> T
                 return text, layout
             # nothing read from the flattened page: fall back to the frame as the camera saw it
     return _read_flat_page(frame, split, enhance)
+
+
+# =====================================================================
+# 5b. Paragraphs by the language model (the lines stay exactly as read)
+# =====================================================================
+MAX_ARRANGE_LINES = 150     # a page with more lines than this is read as the layout analysis ordered it
+
+
+def line_hints(layout: PageLayout) -> List[str]:
+    """Layout facts about each line, as short tags for the language model: [page] first line of a new page of a
+    spread, [column] first line of a new column, [gap] extra space above, [indent] starts indented, [short] ends
+    well before the right edge (judged against the other lines of its own column)."""
+    lines = layout.lines
+    line_h = _median([l.box[3] - l.box[1] for l in lines], 1.0)
+    breaks, runs = [], []                    # why each line starts a block, and which column it is in
+    run = 0
+    for i, l in enumerate(lines):
+        previous = lines[i - 1] if i else None
+        kind = ""
+        if previous is not None:
+            if l.page != previous.page:
+                kind = "page"
+            elif l.box[1] < previous.box[3] - line_h:
+                kind = "column"
+            elif l.box[1] - previous.box[3] > 0.8 * line_h:
+                kind = "gap"
+        run += kind in ("page", "column")
+        breaks.append(kind)
+        runs.append(run)
+    left = {r: _median([l.box[0] for l, x in zip(lines, runs) if x == r]) for r in set(runs)}
+    right = {r: float(np.percentile([l.box[2] for l, x in zip(lines, runs) if x == r], 80)) for r in set(runs)}
+    hints = []
+    for l, kind, r in zip(lines, breaks, runs):
+        tags = [kind] if kind else []
+        if l.box[0] - left[r] > max(0.6 * line_h, 6):
+            tags.append("indent")
+        if l.box[2] < right[r] - 3 * line_h:
+            tags.append("short")
+        hints.append("".join(f"[{t}]" for t in tags))
+    return hints
+
+
+def line_blocks(layout: PageLayout) -> List[int]:
+    """
+    Which block of text each line belongs to, found from the boxes alone: two lines are in the same block when one
+    sits right under the other (a gap of no more than about a line), with the same left edge and mostly the same
+    horizontal span. A column, a heading, or a sidebar beside the main text each come out as a block, so the
+    rows of a sidebar that are level with the main text's rows are not mixed into it. Blocks are numbered in the
+    order their first line appears.
+    """
+    lines = layout.lines
+    parent = list(range(len(lines)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for page in {l.page for l in lines}:
+        members = [i for i, l in enumerate(lines) if l.page == page]
+        line_h = _median([lines[i].box[3] - lines[i].box[1] for i in members], 1.0)
+        for i in members:
+            a = lines[i].box
+            for j in members:
+                b = lines[j].box
+                if b[1] <= a[1]:
+                    continue                                   # b must start below a
+                gap = b[1] - a[3]
+                overlap = min(a[2], b[2]) - max(a[0], b[0])
+                if (-0.6 * line_h <= gap <= 1.2 * line_h and abs(a[0] - b[0]) <= 2 * line_h
+                        and overlap >= 0.6 * min(a[2] - a[0], b[2] - b[0])):
+                    parent[find(j)] = find(i)
+    numbers, blocks = {}, []
+    for i in range(len(lines)):
+        root = find(i)
+        numbers.setdefault(root, len(numbers))
+        blocks.append(numbers[root])
+    return blocks
+
+
+def numbered_lines(layout: PageLayout) -> str:
+    """
+    The page's lines as the language model is shown them, grouped by block (see line_blocks). One row per line:
+    its number (the line's place in layout.lines), where it is (x from to, y of its top, both in percent of the
+    area the text covers, and h, the height of its letters against the usual line: a sidebar or caption has
+    smaller letters), the layout tags, then the text.
+    """
+    lines = layout.lines
+    x0, y0 = min(l.box[0] for l in lines), min(l.box[1] for l in lines)
+    width = max(max(l.box[2] for l in lines) - x0, 1)
+    height = max(max(l.box[3] for l in lines) - y0, 1)
+    usual = _median([l.box[3] - l.box[1] for l in lines], 1.0)
+    hints, blocks = line_hints(layout), line_blocks(layout)
+    out = []
+    for block in range(max(blocks) + 1):
+        out.append(f"Block {block + 1}:")
+        for i, l in enumerate(lines):
+            if blocks[i] == block:
+                where = (f"x{100 * (l.box[0] - x0) / width:.0f}-{100 * (l.box[2] - x0) / width:.0f} "
+                         f"y{100 * (l.box[1] - y0) / height:.0f} h{(l.box[3] - l.box[1]) / usual:.1f}")
+                out.append(f"{i} ({where}){hints[i]} {l.text}")
+    return "\n".join(out)
+
+
+def regroup(layout: PageLayout, groups: List[List[int]], skip: List[int]) -> Tuple[str, PageLayout]:
+    """
+    The page text and layout with the lines put into the given paragraphs (lists of line numbers, in reading
+    order); lines in `skip` are left out. Only the grouping changes: every line keeps its words, so the reading
+    highlight still finds them. Lines of a paragraph are joined with spaces (a word hyphenated across lines is
+    joined), paragraphs with a blank line, as read_page does. Returns a new layout; the given one is not touched.
+    """
+    text, spans, paragraphs, blocks, block_quads = "", [], [], [], []
+    for group in groups:
+        members = []
+        para_start = None
+        for i in group:
+            old = layout.lines[i]
+            t = old.text
+            if para_start is None:
+                if text:
+                    text += "\n\n"
+                para_start = len(text)
+            elif text.endswith("-") and t[:1].islower():
+                text = text[:-1]          # "exam-" + "ple" -> "example"
+            else:
+                text += " "
+            start = len(text)
+            text += t
+            words = [(start + a - old.start, start + b - old.start, box) for a, b, box in old.words]
+            members.append(replace(old, start=start, end=len(text), words=words))
+        spans += members
+        paragraphs.append((para_start, len(text)))
+        if all(m.quad for m in members):
+            corners = np.array([p for m in members for p in m.quad], np.float32)
+            quad = [tuple(map(float, p)) for p in cv2.boxPoints(cv2.minAreaRect(corners))]
+        else:
+            quad = box_quad((min(m.box[0] for m in members), min(m.box[1] for m in members),
+                             max(m.box[2] for m in members), max(m.box[3] for m in members)))
+        blocks.append(quad_bounds(quad))
+        block_quads.append(quad)
+    return text, replace(layout, lines=spans, paragraphs=paragraphs, blocks=blocks, block_quads=block_quads)
+
+
+def arrange_page(layout: PageLayout, doc, cache: Optional[dict] = None) -> Optional[Tuple[str, PageLayout]]:
+    """
+    Ask the language model (doc.arrange_lines) how the page's lines form paragraphs, and rebuild the page that way:
+    a sentence that runs on over a line, column or page is one paragraph, so it is read without a pause. Returns
+    (text, layout), or None when the model cannot be used: then the layout analysis' paragraphs stay.
+    """
+    lines = layout.lines
+    if not 3 <= len(lines) <= MAX_ARRANGE_LINES or not all(l.text for l in lines):
+        return None
+    key = tuple(l.text for l in lines)
+    plan = cache.get(key) if cache is not None else None
+    if plan is None:
+        plan = doc.arrange_lines(numbered_lines(layout), len(lines))
+        if plan is None:
+            return None
+        if cache is not None:
+            cache[key] = plan
+            while len(cache) > 16:
+                cache.pop(next(iter(cache)))
+    groups, skip = plan
+    return regroup(layout, groups, skip)
 
 
 # =====================================================================
@@ -1560,12 +1728,16 @@ class BookWatcher:
                 "motion": round(d.motion, 1), "still_below": round(d.motion_off, 1)}
 
 
-def speech_chunks(text: str, paragraphs, from_pos: int = 0, max_len: int = 600):
+SPEECH_CHUNK_CHARS = 600       # the longest piece of a page spoken as one; the server shortens it for the local voice
+
+
+def speech_chunks(text: str, paragraphs, from_pos: int = 0, max_len: Optional[int] = None):
     """
     (start, chunk) pieces of the page for tracked speech, beginning at
     character `from_pos`: one per paragraph, long paragraphs split at sentence
     ends, so each chunk is spoken as its own utterance.
     """
+    max_len = max_len or SPEECH_CHUNK_CHARS
     for a, b in paragraphs:
         if b <= from_pos:
             continue
@@ -1627,6 +1799,24 @@ class BookReader:
         self.page_text = ""
         self.layout: Optional[PageLayout] = None
         self.last_running_title = ""
+        self._arranged: dict = {}               # the model's paragraphs for a page, by its lines
+
+    def _arrange(self, text: str, layout: PageLayout, resume: Optional[int], read_pos: int, doc):
+        """The page with paragraphs from the language model, when it can give them (see arrange_page)."""
+        try:
+            arranged = arrange_page(layout, doc, self._arranged)
+        except Exception as e:
+            logger.warning(f"Could not arrange the page with the language model: {e}")
+            arranged = None
+        if arranged is None:
+            return text, layout, resume
+        new_text, new_layout = arranged
+        if resume is None:
+            return new_text, new_layout, None
+        new_resume = continue_from(self.page_text, read_pos, new_text)
+        if new_resume is None:                  # the new text cannot be lined up with what was read: keep the plain one
+            return text, layout, resume
+        return new_text, new_layout, new_resume
 
     def process(self, frame: np.ndarray, event: str, read_pos: int, reading: bool, thinking: bool, doc) -> dict:
         h, w = frame.shape[:2]
@@ -1653,6 +1843,9 @@ class BookReader:
                 (not text.strip() or word_overlap(self.page_text, text) >= MOVED_SAME_PAGE)):
             logger.info("The view moved but the page is the same: carrying on")
             return {"action": "keep"}
+
+        if resume is not None or text.strip():
+            text, layout, resume = self._arrange(text, layout, resume, read_pos, doc)
 
         if resume is not None:
             self.page_text, self.layout = text, layout

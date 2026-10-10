@@ -207,6 +207,14 @@ def test_it_moves_to_the_next_port_when_the_wanted_one_is_taken():
     assert f"Port {wanted} is in use, using {out_port} instead." in out
 
 
+def test_the_local_voice_is_optional_and_reported_in_one_line():
+    import run
+    assert "kokoro_onnx" not in run.REQUIRED and "lameenc" not in run.REQUIRED          # a missing one must not stop the start
+    assert "voice" not in run.missing_packages()
+    line = run.voice_line()
+    assert isinstance(line, str) and ("Kokoro" in line or "Edge" in line or "browser" in line)
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

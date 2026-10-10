@@ -116,6 +116,40 @@ Question: {question}
 Web results:
 {results}"""
 
+ARRANGE_PROMPT = """You prepare a page of a book to be read aloud to a blind person. Below are the lines the text
+reader found. The app has already grouped them into blocks from the picture: the lines of a block sit one under
+another with the same left edge. A block can be a column of the main text, a heading, a page number, or a
+sidebar, box or caption beside or below the main text. Blocks are listed in the order their first line appears,
+which is only a guess at the reading order.
+
+Each row looks like:  12 (x62-98 y55 h0.7)[indent] the text of the line
+- 12 is the line number. x62-98: the line spans from 62 % to 98 % of the page's width. y55: its top is 55 % of
+  the way down. h0.7: its letters are 0.7 times the usual size (1.0 is the main text; a sidebar or caption is
+  smaller).
+- Tags are further hints and can be wrong: [page] first line of a new page of a two-page spread, [column] first
+  line of a new column, [gap] extra space above, [indent] starts indented, [short] ends well before the right edge.
+
+Decide the paragraphs and the order in which they are read.
+- Reading order: the left page before the right page. On a page, read ALL the main text first, from top to
+  bottom (column by column), up to its very last line. Only then read each sidebar, box or caption of that page.
+  Never put a sidebar between two parts of the main text. A heading comes before the text under it.
+- A paragraph normally uses lines of one block only. It uses lines of two blocks only when a sentence carries on
+  from the end of one block into the start of another (for example from the bottom of one column to the top of the
+  next): then they are one paragraph, so the voice does not pause there.
+- Inside a block, a new paragraph begins where one really begins: after a sentence has ended and the next line is
+  indented, or follows a gap, or follows a [short] line. A [short] line that ends with a full stop, question mark
+  or exclamation mark almost always ends its paragraph. A heading, chapter title or list item is its own
+  paragraph. A sentence that carries on over the next line belongs to the same paragraph, whatever the tags say.
+- You only group and order lines. Never change, add, fix or reorder words inside a line.
+- Put a line in "skip" only when it clearly is not part of the book's text: a page number, a running header or
+  footer, a stray fragment from the text reader. When unsure, keep the line.
+- Every line number appears exactly once, either in one paragraph or in "skip".
+
+Reply with JSON only: the paragraphs in reading order, each a list of line numbers in reading order, for example
+{"paragraphs": [[0, 1, 2], [3, 4], [5, 6, 7]], "skip": [8]}"""
+
+ARRANGE_TIMEOUT = 12     # seconds the model gets to arrange a page before the page is read as it is
+
 MSG_UNREACHABLE = "I can't reach the language model. Please check the internet connection."
 MSG_NO_KEY = "No API key is set for the language model. Please set LLM_API_KEY."
 MSG_BAD_KEY = "The language model rejected the request. Please check the API key."
@@ -140,6 +174,30 @@ _READ_ALL_REQUEST = re.compile(
 
 # Facts that only the item itself can tell you: never offered as a web lookup
 _ITEM_ONLY = re.compile(r"expir|exp\b|best before|use by|batch|lot\b|mfg|manufactur(ed|ing) date|price|mrp|cost", re.I)
+
+
+def parse_arrangement(reply: str, count: int) -> Optional[Tuple[List[List[int]], List[int]]]:
+    """
+    The model's paragraphs and skipped lines from its reply, or None when the reply cannot be trusted: not JSON, a
+    line missing or given twice, or too many lines skipped. Nothing may be lost by a wrong answer.
+    """
+    start, end = reply.find("{"), reply.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(reply[start:end + 1])
+        groups = [[int(i) for i in group] for group in data["paragraphs"]]
+        skip = [int(i) for i in data.get("skip", [])]
+    except (ValueError, TypeError, KeyError):
+        return None
+    if any(not group for group in groups):
+        return None
+    seen = [i for group in groups for i in group] + skip
+    if sorted(seen) != list(range(count)) or not groups:
+        return None
+    if len(skip) > max(2, count // 4):
+        return None
+    return groups, skip
 
 
 def wants_read_all(request: str) -> bool:
@@ -384,6 +442,29 @@ class DocAssistant:
         except Exception as e:
             logger.warning(f"Couldn't build a search query: {e}")
             return None
+
+    def arrange_lines(self, numbered: str, count: int) -> Optional[Tuple[List[List[int]], List[int]]]:
+        """
+        Book mode: ask the model how the numbered lines of a page form paragraphs (see ARRANGE_PROMPT).
+        Returns (paragraphs, skipped lines) as parse_arrangement checks them, or None when there is no model to ask,
+        it is slow or fails, or its reply is not usable: the caller then keeps the layout analysis' paragraphs.
+        """
+        base, headers, model, key = _endpoint(self.provider)
+        if not key and self.provider not in QWEN_MODELS:
+            return None
+        try:
+            r = requests.post(f"{base}/chat/completions", headers=headers, json={
+                "model": model, "temperature": 0, "max_tokens": 2000,
+                "messages": [{"role": "system", "content": ARRANGE_PROMPT},
+                             {"role": "user", "content": numbered}]}, timeout=(5, ARRANGE_TIMEOUT))
+            r.raise_for_status()
+            plan = parse_arrangement(r.json()["choices"][0]["message"]["content"] or "", count)
+        except Exception as e:
+            logger.warning(f"The model could not arrange the page: {e}")
+            return None
+        if plan is None:
+            logger.warning("The model's paragraphs for the page were not usable; reading the page as laid out")
+        return plan
 
     def judge_intent(self, text: str, offer_pending: bool, subject: str = "") -> str:
         """

@@ -78,8 +78,10 @@ def test_synthesize_reports_a_failing_voice_service_and_caches_good_audio():
             raise ConnectionError("no network")
         return b"mp3-bytes"
 
-    original = commands._speak
+    original, engine = commands._speak, commands.TTS_ENGINE
     commands._speak = fake_speak
+    commands.TTS_ENGINE = "edge"                                  # this test is about the Edge voice
+    commands._cache.clear()
     try:
         assert commands.synthesize("Serial 123456.") == b"mp3-bytes"
         assert calls == ["Serial 1 2 3 4 5 6."]                  # digits spelled out before the voice
@@ -95,7 +97,8 @@ def test_synthesize_reports_a_failing_voice_service_and_caches_good_audio():
         except commands.TtsError:
             pass
     finally:
-        commands._speak = original
+        commands._speak, commands.TTS_ENGINE = original, engine
+        commands._cache.clear()
 
 
 def test_any_wording_that_agrees_to_the_offer_is_a_yes_without_asking_the_model():
@@ -122,6 +125,89 @@ def test_unclear_wording_is_left_to_the_model():
     assert ("what is the dose", False) not in asked
     assert classify("what does the web say", False, lambda *_: "other").name == "question"
     assert classify("find me ibuprofen online", False, lambda *_: 1 / 0).name == "question"   # a failing model changes nothing
+
+
+def _with_voices(kokoro, edge, body):
+    """Run body with fake Kokoro and Edge voices (and Kokoro counted as set up)."""
+    import commands
+    saved = (commands.TTS_ENGINE, commands._speak, commands._speak_kokoro, commands.kokoro_ready, commands._kokoro_failed)
+    commands.TTS_ENGINE, commands._speak, commands._speak_kokoro = "kokoro", edge, kokoro
+    commands.kokoro_ready = lambda: commands.TTS_ENGINE == "kokoro" and not commands._kokoro_failed
+    commands._kokoro_failed = False
+    commands._cache.clear()
+    try:
+        body()
+    finally:
+        commands.TTS_ENGINE, commands._speak, commands._speak_kokoro, commands.kokoro_ready, commands._kokoro_failed = saved
+        commands._cache.clear()
+
+
+def test_the_local_voice_speaks_first_and_the_edge_voice_is_the_backup():
+    import commands
+    calls = {"kokoro": [], "edge": []}
+
+    def kokoro(text):
+        calls["kokoro"].append(text)
+        if "boom" in text:
+            raise RuntimeError("broken")
+        return b"kokoro-mp3"
+
+    async def edge(text):
+        calls["edge"].append(text)
+        return b"edge-mp3"
+
+    def body():
+        assert commands.synthesize("Hello there.") == b"kokoro-mp3" and calls["edge"] == []
+        assert commands.synthesize("Hello there.") == b"kokoro-mp3" and calls["kokoro"] == ["Hello there."]      # cached
+        assert commands.synthesize("boom now") == b"edge-mp3"                  # Kokoro broke: Edge speaks this one ...
+        assert commands._kokoro_failed is True
+        assert commands.synthesize("Another one.") == b"edge-mp3"             # ... and Kokoro is not tried again this run
+        assert calls["kokoro"] == ["Hello there.", "boom now"]
+    _with_voices(kokoro, edge, body)
+
+
+def test_a_long_text_is_spoken_in_small_pieces_by_the_local_voice():
+    import commands
+    seen = []
+
+    def kokoro(text):
+        seen.append(text)
+        return b"k"
+
+    def body():
+        text = " ".join(f"Sentence number {i} is here." for i in range(40))      # about 1200 characters
+        assert commands.synthesize(text) == b"k" * len(seen) and len(seen) > 3
+        assert all(len(t) <= commands.KOKORO_PIECE for t in seen)
+        assert "".join(seen).replace(" ", "") == text.replace(" ", "")          # nothing is dropped
+    _with_voices(kokoro, None, body)
+
+
+def test_the_voice_in_use_is_reported():
+    import commands
+    saved = (commands.TTS_ENABLED, commands.kokoro_ready)
+    try:
+        commands.TTS_ENABLED, commands.kokoro_ready = True, lambda: True
+        assert commands.engine() == "kokoro"
+        commands.kokoro_ready = lambda: False
+        assert commands.engine() == "edge"
+        commands.TTS_ENABLED = False
+        assert commands.engine() is None
+    finally:
+        commands.TTS_ENABLED, commands.kokoro_ready = saved
+
+
+def test_the_local_voice_audio_is_encoded_as_mp3():
+    import numpy as np
+    import commands
+    audio = commands._mp3(np.sin(np.linspace(0, 400, 24000)).astype(np.float32) * 0.3, 24000)      # one second of tone
+    assert len(audio) > 1000 and audio[0] == 0xFF and audio[1] & 0xE0 == 0xE0       # an MPEG frame header
+
+
+def test_pieces_of_a_given_size_lose_nothing():
+    import commands
+    text = "alpha beta gamma delta " * 60
+    pieces = commands._pieces(text.strip(), 100)
+    assert all(len(p) <= 100 for p in pieces) and " ".join(pieces).split() == text.split()
 
 
 if __name__ == "__main__":
